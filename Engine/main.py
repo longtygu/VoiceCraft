@@ -79,7 +79,7 @@ try:
 except Exception:
     HAS_EDGE_TTS = False
 
-app = FastAPI(title="VoiceCraft Ultimate Audio Studio v0.0.2")
+app = FastAPI(title="VoiceCraft Ultimate Audio Studio v1.0.0")
 
 class TTSRequest(BaseModel):
     text: str
@@ -439,9 +439,6 @@ def prepare_bilingual_segments(text: str, single_voice_mode: bool = True, biling
 
     return final_segments if final_segments else [("vi", text, True)]
 
-# ==============================================================================
-# LOI NHAI GIONG AI THE HE MOI (BAO TOAN NGUYEN AM F1/F2 + KHOI PHUC AM SAC MAU)
-# ==============================================================================
 def load_audio_file_mono(file_path: str, target_sr: int = 22050) -> np.ndarray:
     if not file_path or not os.path.exists(file_path):
         return None
@@ -477,7 +474,6 @@ def load_audio_file_mono(file_path: str, target_sr: int = 22050) -> np.ndarray:
     return None
 
 def isolate_vocal_band(samples: np.ndarray, sr: int = 22050) -> np.ndarray:
-    """Loc tach dai tan giong noi (90Hz - 3800Hz) de loai bo nhac nen/bass/treble khi phan tich file mau."""
     if not HAS_SCIPY or samples is None or samples.size < 256:
         return samples
     try:
@@ -488,11 +484,6 @@ def isolate_vocal_band(samples: np.ndarray, sr: int = 22050) -> np.ndarray:
         return samples
 
 def estimate_median_f0_and_macro_timbre(samples: np.ndarray, sr: int = 22050, n_fft: int = 1024):
-    """
-    Trich xuat F0 trung vi va Duong bao am sac vi mo (Macro-Timbre Lifter = 8):
-    - Lifter = 8 chi lay do nghieng pho (Spectral Tilt) va kich thuoc vom hong tong the,
-      TUYET DOI KHONG ghi de len dinh nguyen am F1/F2 -> Giu phat am chuan 100% ke ca o CloneStrength = 100%!
-    """
     if samples is None or samples.size < n_fft * 2:
         return 175.0, np.zeros(n_fft // 2 + 1, dtype=np.float32)
 
@@ -523,7 +514,6 @@ def estimate_median_f0_and_macro_timbre(samples: np.ndarray, sr: int = 22050, n_
         if energy < 0.05:
             continue
 
-        # Chi lay cac khung huu thanh (Voiced frames co ZCR thap)
         zcr = float(np.mean(np.abs(np.diff(np.sign(v_frame))))) * 0.5
         if zcr > 0.22:
             continue
@@ -532,14 +522,12 @@ def estimate_median_f0_and_macro_timbre(samples: np.ndarray, sr: int = 22050, n_
         spec = np.abs(np.fft.rfft(w_frame)) + 1e-6
         log_spec = np.log(spec)
 
-        # Macro-Timbre Lifter = 8 (Bao toan 100% nguyen am F1/F2, chi lay mau am sac nguoi noi)
         cep = np.fft.irfft(log_spec)
         lifter_cut = 8
         cep[lifter_cut:-lifter_cut] = 0.0
         smooth_env = np.real(np.fft.rfft(cep)).astype(np.float32)
         env_accum.append(smooth_env)
 
-        # Do F0 tren tin hieu da loc giong hat/noi
         vw_frame = v_frame * win
         v_spec = np.abs(np.fft.rfft(vw_frame)) + 1e-6
         corr = np.fft.irfft(v_spec * v_spec)
@@ -577,11 +565,6 @@ def apply_voice_cloning_transfer(
     ref_path: str,
     strength: float = 0.80
 ) -> np.ndarray:
-    """
-    Chuyen doi giong noi (Formant-Safe Voice Cloning):
-    1. Dong bo cao do trung vi F0 chinh xac voi giong mau qua Pedalboard PitchShift.
-    2. Chuyen doi do nghieng am sac vom hong (Macro-Timbre Tilt +-6dB) ma KHONG lam bien dang nguyen am.
-    """
     strength = max(0.0, min(1.0, float(strength)))
     if strength <= 0.01 or samples.size < 2048:
         return samples
@@ -593,7 +576,6 @@ def apply_voice_cloning_transfer(
     ref_f0, ref_env = ref_prof
     src_f0, _ = estimate_median_f0_and_macro_timbre(samples, sr)
 
-    # 1. Dich chuyen Pitch F0 khop voi mau giong (Gioi han an toan de khong bao gio meo chu)
     if src_f0 > 65.0 and ref_f0 > 65.0:
         raw_ratio = ref_f0 / src_f0
         clamped_ratio = max(0.72, min(1.40, raw_ratio))
@@ -601,7 +583,6 @@ def apply_voice_cloning_transfer(
         if abs(blended_ratio - 1.0) >= 0.015:
             samples = apply_studio_pitch_and_timbre(samples, sr, blended_ratio)
 
-    # 2. Ãp dá»¥ng Ä‘Æ°á»ng bao Macro-Timbre (Giá»›i háº¡n tá»‘i Ä‘a +-0.65 Nepers ~ +-5.6dB Ä‘á»ƒ giá»¯ nguyÃªn 100% phÃ¡t Ã¢m)
     _, src_env = estimate_median_f0_and_macro_timbre(samples, sr)
     delta_log_env = np.clip((ref_env - src_env) * (strength * 0.55), -0.65, 0.65)
     transfer_gain = np.exp(delta_log_env).astype(np.float32)
@@ -987,11 +968,9 @@ def post_process_master_chain(pcm: np.ndarray, req: TTSRequest, target_sr: int =
 
     wav_f = pcm.astype(np.float32)
 
-    # 1. Nhai giong AI (Luon chay khi clone_enabled = True ke ca khi tat EQ)
     if req.clone_enabled and req.clone_reference_path and os.path.exists(req.clone_reference_path):
         wav_f = apply_voice_cloning_transfer(wav_f, target_sr, req.clone_reference_path, req.clone_strength)
 
-    # 2. Bo loc EQ theo tung Model
     if not req.bypass_dsp:
         wav_f = apply_custom_studio_eq(
             wav_f,
@@ -1007,7 +986,6 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
     target_sr = 22050
     explicit_mod = (req.model_file or "").strip()
 
-    # Neu bat Nhai giong AI: Tu dong do F0 cua file mau truoc de chon giong nen cung gioi tinh (Nam/Nu)
     clone_ref_is_male = None
     if req.clone_enabled and req.clone_reference_path and os.path.exists(req.clone_reference_path):
         prof = await asyncio.to_thread(get_reference_voice_profile, req.clone_reference_path, target_sr)
@@ -1015,7 +993,6 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
             ref_f0, _ = prof
             clone_ref_is_male = (ref_f0 < 168.0)
 
-    # 1. Nhom VieNeu-TTS & VietTTS
     if explicit_mod.startswith("[VieNeu-TTS-24kHz]") or explicit_mod.startswith("[VietTTS-HiFiGAN]"):
         pcm = await synthesize_with_vieneu_or_viettts_async(req, target_sr, override_male=clone_ref_is_male)
         pcm = await asyncio.to_thread(post_process_master_chain, pcm, req, target_sr)
@@ -1026,7 +1003,6 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
             wav_out.writeframes(pcm.tobytes())
         return
 
-    # 2. Nhom Neural-24kHz & Multilingual-24kHz
     if explicit_mod.startswith("[Neural-24kHz]") or explicit_mod.startswith("[Multilingual-24kHz]"):
         effective_label = explicit_mod
         if clone_ref_is_male is not None:
@@ -1043,7 +1019,6 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
             wav_out.writeframes(pcm.tobytes())
         return
 
-    # 3. Nhom Kokoro-82M 24kHz Offline
     if explicit_mod.startswith("[Kokoro-82M-24kHz]"):
         pcm = await asyncio.to_thread(synthesize_with_kokoro, req.text, explicit_mod, req.speed, req.pitch, req.bypass_dsp, target_sr)
         pcm = await asyncio.to_thread(post_process_master_chain, pcm, req, target_sr)
@@ -1054,7 +1029,6 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
             wav_out.writeframes(pcm.tobytes())
         return
 
-    # 4. Neu o che do Auto ma bat Nhai giong -> Uu tien dung nen Neural 24kHz cung gioi tinh voi file mau de phat am chuan 100%
     if explicit_mod == "T\u1EF1 \u0111\u1ED9ng theo v\u00F9ng mi\u1EC1n (Auto)" and clone_ref_is_male is not None and HAS_EDGE_TTS:
         try:
             v_label = "vi-VN-NamMinhNeural" if clone_ref_is_male else "vi-VN-HoaiMyNeural"
@@ -1069,7 +1043,6 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
         except Exception:
             pass
 
-    # 5. Nhom PyTorch MMS & Piper ONNX Offline
     force_mms = explicit_mod.startswith("[PyTorch]")
     force_en_model = explicit_mod.lower().startswith("en_")
 
@@ -1144,7 +1117,7 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
 async def ping():
     return {
         "status": "ready",
-        "version": "0.0.2",
+        "version": "1.0.0",
         "models": list_valid_onnx()
     }
 

@@ -1,4 +1,4 @@
-# 🎙️ VoiceCraft Studio (v0.0.1)
+# 🎙️ VoiceCraft Studio (v1.0.0)
 **Hệ thống Chuyển đổi Văn bản thành Giọng nói Đa Mô hình (Multi-Engine AI TTS), Nhái giọng Zero-Shot & Phòng thu DSP**
 
 Phát triển bởi: **Longtygu**  
@@ -6,7 +6,7 @@ Ngôn ngữ & Nền tảng: **C# WPF (.NET 8.0) + Python (FastAPI, ONNX Runtime,
 
 ---
 
-## ✨ Tính năng nổi bật (v0.0.1)
+## ✨ Tính năng nổi bật (v1.0.0)
 
 1. **Hỗ trợ Đa Kiến trúc Mô hình AI (Multi-Engine Model Lab):**
    - **VieNeu-TTS & VietTTS HiFi-GAN:** Tối ưu hóa ngữ điệu 6 thanh điệu Tiếng Việt và độ ấm vòm họng.

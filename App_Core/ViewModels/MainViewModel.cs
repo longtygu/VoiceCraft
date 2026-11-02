@@ -8,6 +8,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -42,7 +43,7 @@ namespace VoiceCraft.App_Core.ViewModels
         public double CardOpacity { get; set; } = 0.45;
         public bool ShowAeroReflection { get; set; } = true;
         public string SelectedVoice { get; set; }
-        public string SelectedModelFile { get; set; } = "T\u1EF1 \u0111\u1ED9ng theo v\u00F9ng mi\u1EC1n (Auto)";
+        public string SelectedModelFile { get; set; } = "Tự động theo vùng miền (Auto)";
         public int SpeakerId { get; set; } = -1;
         public bool BypassDsp { get; set; } = false;
         public string SelectedGender { get; set; }
@@ -53,7 +54,7 @@ namespace VoiceCraft.App_Core.ViewModels
         public double Pitch { get; set; } = 1.0;
         public double Volume { get; set; } = 100.0;
         public bool IsVoiceCloneEnabled { get; set; } = false;
-        public bool IsCustomEqEnabled { get; set; } = false;
+        public bool IsEqPanelExpanded { get; set; } = false;
         public string CloneReferencePath { get; set; } = "";
         public double CloneStrength { get; set; } = 0.80;
         public double EqBassDb { get; set; } = 0.0;
@@ -66,7 +67,6 @@ namespace VoiceCraft.App_Core.ViewModels
 
     public class MainViewModel : INotifyPropertyChanged
     {
-        private const string AutoModelName = "T\u1EF1 \u0111\u1ED9ng theo v\u00F9ng mi\u1EC1n (Auto)";
         private readonly HttpClient _httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
         private readonly EngineManager _engineManager;
         private readonly AudioPlayer _audioPlayer;
@@ -79,7 +79,6 @@ namespace VoiceCraft.App_Core.ViewModels
         private bool _isTimerUpdating;
         private bool _isLoadingSettings;
         private bool _isSwitchingModelProfile;
-        private bool _isRepairingModels;
         private UpdateInfo _latestUpdateInfo;
         private string _downloadedUpdateFilePath;
         private Dictionary<string, ModelDspProfile> _modelProfiles = new Dictionary<string, ModelDspProfile>();
@@ -112,11 +111,20 @@ namespace VoiceCraft.App_Core.ViewModels
             if (!Directory.Exists(_modelsDir)) Directory.CreateDirectory(_modelsDir);
             _settingsFilePath = Path.Combine(Logger.ProjectRoot, "settings.json");
 
+            Logger.Info($"Ứng dụng VoiceCraft v{AppVersion} khởi động.");
+
             SynthesizeCommand = new RelayCommand(async (o) => await SynthesizeAsync(), (o) => !IsProcessing && !string.IsNullOrWhiteSpace(InputText));
             PlayCommand = new RelayCommand((o) => { _audioPlayer.Play(); _timer.Start(); }, (o) => !IsProcessing && !string.IsNullOrEmpty(_currentAudioPath));
             PauseCommand = new RelayCommand((o) => { _audioPlayer.Pause(); _timer.Stop(); }, (o) => !IsProcessing && !string.IsNullOrEmpty(_currentAudioPath));
             StopCommand = new RelayCommand((o) => { _audioPlayer.Stop(); _timer.Stop(); CurrentPosition = 0; UpdateTimeDisplay(); }, (o) => !IsProcessing && !string.IsNullOrEmpty(_currentAudioPath));
             SaveCommand = new RelayCommand(SaveFile, (o) => !IsProcessing && !string.IsNullOrEmpty(_currentAudioPath));
+
+            PasteTextCommand = new RelayCommand((o) =>
+            {
+                if (Clipboard.ContainsText())
+                    InputText = Clipboard.GetText();
+            });
+            ClearTextCommand = new RelayCommand((o) => InputText = "");
 
             SwitchTabCommand = new RelayCommand((param) =>
             {
@@ -132,19 +140,19 @@ namespace VoiceCraft.App_Core.ViewModels
                     SpeakerId = Math.Clamp(SpeakerId + delta, -1, 903);
             });
 
-            // SUA LOI KHONG HIEN SONG AM KHI CHON GIONG DOC MAU (.WAV / .MP3)
+            // Chọn mẫu Nhái giọng và hiển thị ngay Sóng âm thanh lên trình phát phía dưới
             SelectCloneSampleCommand = new RelayCommand((o) =>
             {
                 var dlg = new OpenFileDialog
                 {
-                    Title = "Ch\u1ECDn file \u00E2m thanh m\u1EABu (5 - 15 gi\u00E2y) \u0111\u1EC3 Nh\u00E1i gi\u1ECDng",
+                    Title = "Chọn file âm thanh mẫu (5 - 15 giây) để Nhái giọng",
                     Filter = "Audio Files (*.wav;*.mp3)|*.wav;*.mp3|All Files (*.*)|*.*"
                 };
                 if (dlg.ShowDialog() == true)
                 {
                     CloneReferencePath = dlg.FileName;
                     IsVoiceCloneEnabled = true;
-                    LoadAudioToTimeline(CloneReferencePath, false);
+                    LoadAudioAndWaveformToTimeline(CloneReferencePath);
                 }
             });
 
@@ -152,13 +160,16 @@ namespace VoiceCraft.App_Core.ViewModels
             {
                 if (!string.IsNullOrEmpty(CloneReferencePath) && File.Exists(CloneReferencePath))
                 {
-                    LoadAudioToTimeline(CloneReferencePath, true);
+                    LoadAudioAndWaveformToTimeline(CloneReferencePath);
+                    _audioPlayer.Play();
+                    _timer.Start();
                 }
             }, (o) => !string.IsNullOrEmpty(CloneReferencePath) && File.Exists(CloneReferencePath));
 
             ClearCloneSampleCommand = new RelayCommand((o) =>
             {
                 CloneReferencePath = "";
+                IsVoiceCloneEnabled = false;
             });
 
             ResetEqCommand = new RelayCommand((o) =>
@@ -168,28 +179,6 @@ namespace VoiceCraft.App_Core.ViewModels
                 DeHissCutoff = 10000.0;
                 VitsNoiseScale = 0.67;
             });
-
-            ApplyAudioPresetCommand = new RelayCommand((param) =>
-            {
-                string preset = param?.ToString() ?? "Clean";
-                BypassDsp = false;
-                IsCustomEqEnabled = true;
-                if (preset == "Broadcast") { Speed = 1.0; Pitch = 1.0; EqBassDb = 2.5; EqTrebleDb = 2.0; DeHissCutoff = 9500; VitsNoiseScale = 0.60; }
-                else if (preset == "Story") { Speed = 0.92; Pitch = 0.96; EqBassDb = 4.0; EqTrebleDb = 0.5; DeHissCutoff = 8000; VitsNoiseScale = 0.55; }
-                else if (preset == "Review") { Speed = 1.18; Pitch = 1.02; EqBassDb = 1.5; EqTrebleDb = 3.0; DeHissCutoff = 10000; VitsNoiseScale = 0.65; }
-                else { Speed = 1.0; Pitch = 1.0; EqBassDb = 0.0; EqTrebleDb = 2.0; DeHissCutoff = 8500; VitsNoiseScale = 0.60; }
-            });
-
-            ClearTextCommand = new RelayCommand((o) => InputText = "");
-            PasteTextCommand = new RelayCommand((o) =>
-            {
-                if (Clipboard.ContainsText()) InputText = Clipboard.GetText();
-            });
-            OpenSelectedHistoryFileCommand = new RelayCommand((o) =>
-            {
-                if (SelectedHistoryItem != null && File.Exists(SelectedHistoryItem.FilePath))
-                    Process.Start("explorer.exe", $"/select,\"{SelectedHistoryItem.FilePath}\"");
-            }, (o) => SelectedHistoryItem != null);
 
             AdjustSpeedCommand = new RelayCommand((param) =>
             {
@@ -214,8 +203,6 @@ namespace VoiceCraft.App_Core.ViewModels
             });
 
             RestartEngineCommand = new RelayCommand(async (o) => await InitializeEngineAsync());
-            RepairModelsCommand = new RelayCommand(async (o) => await RepairAndDownloadModelsAsync(), (o) => !_isRepairingModels);
-
             OpenFolderCommand = new RelayCommand((param) =>
             {
                 string target = param?.ToString();
@@ -231,6 +218,7 @@ namespace VoiceCraft.App_Core.ViewModels
                 try
                 {
                     _audioPlayer.Stop();
+                    _timer.Stop();
                     int count = 0;
                     if (Directory.Exists(_outputDir))
                     {
@@ -245,24 +233,25 @@ namespace VoiceCraft.App_Core.ViewModels
                     TotalDuration = 0;
                     CurrentPosition = 0;
                     UpdateTimeDisplay();
-                    MessageBox.Show($"\u0110\u00E3 d\u1ECDn d\u1EB9p {count} file \u00E2m thanh trong th\u01B0 m\u1EE5c Output!", "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show($"Đã dọn dẹp sạch {count} file âm thanh trong thư mục Output!", "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
-                catch (Exception ex) { Logger.Error("L\u1ED7i d\u1ECDn Output", ex); }
+                catch (Exception ex) { Logger.Error("Lỗi dọn dẹp Output", ex); }
             });
 
+            RepairAndDownloadModelsCommand = new RelayCommand(async (o) => await RepairAndDownloadModelsAsync(), (o) => !IsRepairingModels);
             CheckUpdateCommand = new RelayCommand(async (o) => await CheckForUpdateAsync(), (o) => !IsCheckingUpdate && !IsDownloadingUpdate);
-            DownloadUpdateCommand = new RelayCommand(async (o) => await DownloadUpdateAsync(), (o) => !IsDownloadingUpdate && _latestUpdateInfo != null && !string.IsNullOrEmpty(_latestUpdateInfo.DownloadUrl));
+            DownloadUpdateCommand = new RelayCommand(async (o) => await DownloadUpdateAsync(), (o) => !IsDownloadingUpdate && IsUpdateAvailable);
             OpenUpdateFolderCommand = new RelayCommand((o) => _updateService.OpenUpdateFolderOrFile(_downloadedUpdateFilePath));
 
             RefreshAvailableModels();
             LoadSettings();
-            // Dam bao Tab 2 va Tab 3 mac dinh thu gon khi moi mo app theo yeu cau
+            // Đảm bảo mặc định Tab 2 và Tab 3 luôn thu gọn khi khởi động theo yêu cầu
             _isVoiceCloneEnabled = false;
-            _isCustomEqEnabled = false;
+            _isEqPanelExpanded = false;
             OnPropertyChanged(nameof(IsVoiceCloneEnabled));
             OnPropertyChanged(nameof(VoiceClonePanelVisibility));
-            OnPropertyChanged(nameof(IsCustomEqEnabled));
-            OnPropertyChanged(nameof(CustomEqPanelVisibility));
+            OnPropertyChanged(nameof(IsEqPanelExpanded));
+            OnPropertyChanged(nameof(EqPanelVisibility));
 
             UpdateSelectedModelInfo();
             UpdateThemeBrushes();
@@ -270,7 +259,7 @@ namespace VoiceCraft.App_Core.ViewModels
             _ = InitializeEngineAsync();
         }
 
-        private void LoadAudioToTimeline(string filePath, bool autoPlay)
+        private void LoadAudioAndWaveformToTimeline(string filePath)
         {
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return;
             try
@@ -284,28 +273,23 @@ namespace VoiceCraft.App_Core.ViewModels
                 UpdateTimeDisplay();
                 WaveformPoints = GenerateWaveform(_currentAudioPath);
                 CommandManager.InvalidateRequerySuggested();
-                if (autoPlay)
-                {
-                    _audioPlayer.Play();
-                    _timer.Start();
-                }
             }
             catch (Exception ex)
             {
-                Logger.Error("L\u1ED7i n\u1EA1p file \u00E2m thanh l\u00EAn Timeline", ex);
+                Logger.Error("Lỗi nạp sóng âm thanh vào Timeline", ex);
             }
         }
 
-        // --- TAB 1: CHON MODEL & AN/HIEN VUNG MIEN + GIOI TINH ---
+        // --- TAB 1: CHỌN MODEL & ẨN/HIỆN VÙNG MIỀN + GIỚI TÍNH ---
         public ObservableCollection<string> AvailableModels { get; } = new ObservableCollection<string>();
 
-        private string _selectedModelFile = AutoModelName;
+        private string _selectedModelFile = "Tự động theo vùng miền (Auto)";
         public string SelectedModelFile
         {
             get => _selectedModelFile;
             set
             {
-                string nextVal = string.IsNullOrEmpty(value) ? AutoModelName : value;
+                string nextVal = string.IsNullOrEmpty(value) ? "Tự động theo vùng miền (Auto)" : value;
                 if (_selectedModelFile == nextVal) return;
 
                 SaveCurrentModelProfile();
@@ -313,20 +297,16 @@ namespace VoiceCraft.App_Core.ViewModels
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(IsAutoModelSelected));
                 OnPropertyChanged(nameof(AutoModelOptionsVisibility));
-                OnPropertyChanged(nameof(MultiSpeakerVisibility));
                 LoadProfileForModel(_selectedModelFile);
                 UpdateSelectedModelInfo();
                 SaveSettings();
             }
         }
 
-        public bool IsAutoModelSelected => string.IsNullOrEmpty(SelectedModelFile) || SelectedModelFile == AutoModelName;
+        public bool IsAutoModelSelected => string.IsNullOrEmpty(SelectedModelFile) || SelectedModelFile == "Tự động theo vùng miền (Auto)";
         public Visibility AutoModelOptionsVisibility => IsAutoModelSelected ? Visibility.Visible : Visibility.Collapsed;
-        public Visibility MultiSpeakerVisibility => (!IsAutoModelSelected && (SelectedModelFile.Contains("vivos") || SelectedModelFile.Contains("libritts") || SelectedModelFile.Contains("904spk")))
-            ? Visibility.Visible
-            : Visibility.Collapsed;
 
-        private string _selectedModelInfoText = "Ch\u1EBF \u0111\u1ED9 T\u1EF1 \u0111\u1ED9ng: Cho ph\u00E9p ch\u1ECDn V\u00F9ng mi\u1EC1n & Gi\u1EDB;i t\u00EDnh.";
+        private string _selectedModelInfoText = "Chế độ Tự động: Tự chọn model theo vùng miền & giới tính.";
         public string SelectedModelInfoText
         {
             get => _selectedModelInfoText;
@@ -354,7 +334,7 @@ namespace VoiceCraft.App_Core.ViewModels
             set { _bypassDsp = value; OnPropertyChanged(); SaveSettings(); }
         }
 
-        // --- TAB 2: NHAI GIONG AI (CONG TAC THU GON / MO RONG) ---
+        // --- TAB 2: NHÁI GIỌNG AI (MẶC ĐỊNH THU GỌN, CHỈ MỞ KHI BẬT CÔNG TẮC) ---
         private bool _isVoiceCloneEnabled = false;
         public bool IsVoiceCloneEnabled
         {
@@ -383,7 +363,7 @@ namespace VoiceCraft.App_Core.ViewModels
             }
         }
         public string CloneReferenceFileName => string.IsNullOrEmpty(_cloneReferencePath)
-            ? "Ch\u01B0a ch\u1ECDn m\u1EABu gi\u1ECDng (.wav/.mp3)"
+            ? "Chưa chọn mẫu giọng (.wav/.mp3)"
             : Path.GetFileName(_cloneReferencePath);
 
         private double _cloneStrength = 0.80;
@@ -400,20 +380,20 @@ namespace VoiceCraft.App_Core.ViewModels
         }
         public string CloneStrengthPercent => $"{(int)(CloneStrength * 100)}%";
 
-        // --- TAB 3: BO LOC EQ THEO MODEL (CONG TAC THU GON / MO RONG) ---
-        private bool _isCustomEqEnabled = false;
-        public bool IsCustomEqEnabled
+        // --- TAB 3: BỘ LỌC EQ (MẶC ĐỊNH THU GỌN, CHỈ MỞ KHI BẬT CÔNG TẮC) ---
+        private bool _isEqPanelExpanded = false;
+        public bool IsEqPanelExpanded
         {
-            get => _isCustomEqEnabled;
+            get => _isEqPanelExpanded;
             set
             {
-                _isCustomEqEnabled = value;
+                _isEqPanelExpanded = value;
                 OnPropertyChanged();
-                OnPropertyChanged(nameof(CustomEqPanelVisibility));
+                OnPropertyChanged(nameof(EqPanelVisibility));
                 SaveSettings();
             }
         }
-        public Visibility CustomEqPanelVisibility => IsCustomEqEnabled ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility EqPanelVisibility => IsEqPanelExpanded ? Visibility.Visible : Visibility.Collapsed;
 
         private double _eqBassDb = 0.0;
         public double EqBassDb
@@ -458,7 +438,7 @@ namespace VoiceCraft.App_Core.ViewModels
                 SaveSettings();
             }
         }
-        public string DeHissDisplay => _deHissCutoff >= 10500 ? "T\u1EAFt (Full)" : $"{_deHissCutoff:0} Hz";
+        public string DeHissDisplay => _deHissCutoff >= 10500 ? "Tắt (Full)" : $"{_deHissCutoff:0} Hz";
 
         private double _vitsNoiseScale = 0.67;
         public double VitsNoiseScale
@@ -473,72 +453,140 @@ namespace VoiceCraft.App_Core.ViewModels
             }
         }
 
-        // --- CUA SO TRANG THAI SUA & TAI MODEL TU DONG TRONG CAI DAT ---
-        private string _modelSetupLogText = "S\u1EE7n s\u00E0ng. Nh\u1EA5n 'S\u1EEDa & T\u1EA3i Model ngay' \u0111\u1EC3 ki\u1EC3m tra v\u00E0 t\u1EA3i t\u1EF1 \u0111\u1ED9ng to\u00E0n b\u1ED9 Model AI.";
-        public string ModelSetupLogText
+        // --- TRÌNH SỬA & TẢI MODEL TỰ ĐỘNG TRONG SETTINGS ---
+        private bool _isRepairingModels;
+        public bool IsRepairingModels
         {
-            get => _modelSetupLogText;
-            set { _modelSetupLogText = value; OnPropertyChanged(); }
+            get => _isRepairingModels;
+            set
+            {
+                _isRepairingModels = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ModelRepairProgressVisibility));
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }
+
+        private double _modelRepairProgress;
+        public double ModelRepairProgress
+        {
+            get => _modelRepairProgress;
+            set
+            {
+                _modelRepairProgress = Math.Clamp(value, 0, 100);
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ModelRepairProgressPercent));
+                OnPropertyChanged(nameof(ModelRepairProgressVisibility));
+            }
+        }
+        public string ModelRepairProgressPercent => $"{(int)ModelRepairProgress}%";
+        public Visibility ModelRepairProgressVisibility => (IsRepairingModels || ModelRepairProgress > 0) ? Visibility.Visible : Visibility.Collapsed;
+
+        private string _modelRepairLogText = "Nhấn '🔧 Sửa & Tải Model tự động' để kiểm tra và tải đầy đủ các bộ Model AI về máy.";
+        public string ModelRepairLogText
+        {
+            get => _modelRepairLogText;
+            set { _modelRepairLogText = value; OnPropertyChanged(); }
+        }
+
+        private void AppendRepairLog(string line)
+        {
+            Application.Current?.Dispatcher?.Invoke(() =>
+            {
+                ModelRepairLogText += $"\n[{DateTime.Now:HH:mm:ss}] {line}";
+            });
         }
 
         private async Task RepairAndDownloadModelsAsync()
         {
-            if (_isRepairingModels) return;
-            _isRepairingModels = true;
-            CommandManager.InvalidateRequerySuggested();
-            ModelSetupLogText = "[B\u1EAET \u0110\u1EA6U] \u0110ang ki\u1EC3m tra th\u01B0 vi\u1EC7n Python & t\u1EA3i b\u1ED9 Model AI...\n";
+            IsRepairingModels = true;
+            ModelRepairProgress = 2;
+            ModelRepairLogText = $"[{DateTime.Now:HH:mm:ss}] Bắt đầu kiểm tra & sửa chữa hệ thống Model AI...";
 
             try
             {
-                string scriptPath = Path.Combine(Logger.ProjectRoot, "setup_models.ps1");
-                if (!File.Exists(scriptPath))
+                string kokoroDir = Path.Combine(_modelsDir, "kokoro_24k");
+                Directory.CreateDirectory(_modelsDir);
+                Directory.CreateDirectory(kokoroDir);
+
+                var downloadList = new List<(string Name, string Url, string DestPath, long MinSize)>
                 {
-                    ModelSetupLogText += "[TH\u00D4NG B\u00C1O] \u0110ang t\u1EA1o file setup_models.ps1 m\u1EB7c \u0111\u1ECBnh...\n";
-                    File.WriteAllText(scriptPath, "python -m pip install edge-tts kokoro-onnx miniaudio pedalboard cmudict scipy numpy transformers torch piper-tts onnxruntime fastapi uvicorn pydantic\n");
+                    ("Kokoro-82M 24kHz (kokoro-v1.0.onnx)", "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx", Path.Combine(kokoroDir, "kokoro-v1.0.onnx"), 10_000_000),
+                    ("Kokoro 54 Voices (voices-v1.0.bin)", "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin", Path.Combine(kokoroDir, "voices-v1.0.bin"), 1_000_000),
+                    ("Tiếng Việt Miền Bắc (vais1000-medium.onnx)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx?download=true", Path.Combine(_modelsDir, "bac_vi_VN-vais1000-medium.onnx"), 5_000_000),
+                    ("Cấu hình Miền Bắc (vais1000-medium.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx.json?download=true", Path.Combine(_modelsDir, "bac_vi_VN-vais1000-medium.onnx.json"), 100),
+                    ("Tiếng Việt Miền Trung (25hours_single-low.onnx)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/25hours_single/low/vi_VN-25hours_single-low.onnx?download=true", Path.Combine(_modelsDir, "trung_vi_VN-25hours_single-low.onnx"), 5_000_000),
+                    ("Cấu hình Miền Trung (25hours_single-low.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/25hours_single/low/vi_VN-25hours_single-low.onnx.json?download=true", Path.Combine(_modelsDir, "trung_vi_VN-25hours_single-low.onnx.json"), 100),
+                    ("Tiếng Việt Miền Nam (vivos-x_low.onnx)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vivos/x_low/vi_VN-vivos-x_low.onnx?download=true", Path.Combine(_modelsDir, "nam_vi_VN-vivos-x_low.onnx"), 5_000_000),
+                    ("Cấu hình Miền Nam (vivos-x_low.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vivos/x_low/vi_VN-vivos-x_low.onnx.json?download=true", Path.Combine(_modelsDir, "nam_vi_VN-vivos-x_low.onnx.json"), 100),
+                    ("English Nữ High (en_US-lessac-high.onnx)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/high/en_US-lessac-high.onnx?download=true", Path.Combine(_modelsDir, "en_female_hi_en_US-lessac-high.onnx"), 5_000_000),
+                    ("Cấu hình Lessac High (.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/high/en_US-lessac-high.onnx.json?download=true", Path.Combine(_modelsDir, "en_female_hi_en_US-lessac-high.onnx.json"), 100),
+                    ("English Nam High (en_US-ryan-high.onnx)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high.onnx?download=true", Path.Combine(_modelsDir, "en_male_hi_en_US-ryan-high.onnx"), 5_000_000),
+                    ("Cấu hình Ryan High (.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high.onnx.json?download=true", Path.Combine(_modelsDir, "en_male_hi_en_US-ryan-high.onnx.json"), 100)
+                };
+
+                int totalItems = downloadList.Count;
+                for (int i = 0; i < totalItems; i++)
+                {
+                    var item = downloadList[i];
+                    double basePct = (i * 85.0) / totalItems;
+                    ModelRepairProgress = Math.Max(5, basePct);
+
+                    if (File.Exists(item.DestPath) && new FileInfo(item.DestPath).Length >= item.MinSize)
+                    {
+                        AppendRepairLog($"✔ Đã chuẩn: {item.Name}");
+                        continue;
+                    }
+
+                    AppendRepairLog($"⏳ Đang tải: {item.Name}...");
+                    using var resp = await _httpClient.GetAsync(item.Url, HttpCompletionOption.ResponseHeadersRead);
+                    resp.EnsureSuccessStatusCode();
+                    long? len = resp.Content.Headers.ContentLength;
+                    using var stream = await resp.Content.ReadAsStreamAsync();
+                    using var fs = new FileStream(item.DestPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
+                    byte[] buf = new byte[81920];
+                    long readTotal = 0;
+                    int r;
+                    while ((r = await stream.ReadAsync(buf, 0, buf.Length)) > 0)
+                    {
+                        await fs.WriteAsync(buf, 0, r);
+                        readTotal += r;
+                        if (len.HasValue && len.Value > 0)
+                        {
+                            double subPct = (double)readTotal / len.Value * (85.0 / totalItems);
+                            ModelRepairProgress = Math.Min(90, basePct + subPct);
+                        }
+                    }
+                    AppendRepairLog($"✅ Tải xong: {item.Name} ({Math.Round(readTotal / 1048576.0, 2)} MB)");
                 }
 
+                AppendRepairLog("⏳ Đang kiểm tra các gói thư viện Python (edge-tts, kokoro-onnx, pedalboard, cmudict)...");
+                ModelRepairProgress = 92;
                 await Task.Run(() =>
                 {
                     var psi = new ProcessStartInfo
                     {
-                        FileName = "powershell.exe",
-                        Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\"",
-                        WorkingDirectory = Logger.ProjectRoot,
+                        FileName = "python",
+                        Arguments = "-m pip install edge-tts kokoro-onnx miniaudio pedalboard cmudict scipy numpy piper-tts onnxruntime fastapi uvicorn pydantic",
                         UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
                         CreateNoWindow = true
                     };
-
-                    using var proc = new Process { StartInfo = psi };
-                    proc.OutputDataReceived += (s, e) =>
-                    {
-                        if (!string.IsNullOrEmpty(e.Data))
-                            Application.Current?.Dispatcher?.Invoke(() => ModelSetupLogText += e.Data + "\n");
-                    };
-                    proc.ErrorDataReceived += (s, e) =>
-                    {
-                        if (!string.IsNullOrEmpty(e.Data))
-                            Application.Current?.Dispatcher?.Invoke(() => ModelSetupLogText += "[LOG] " + e.Data + "\n");
-                    };
-
-                    proc.Start();
-                    proc.BeginOutputReadLine();
-                    proc.BeginErrorReadLine();
-                    proc.WaitForExit();
+                    using var p = Process.Start(psi);
+                    p?.WaitForExit(120000);
                 });
 
                 RefreshAvailableModels();
-                ModelSetupLogText += "[HO\u00C0N T\u1EA4T] \u0110\u00E3 ki\u1EC3m tra & c\u1EADp nh\u1EADt xong danh s\u00E1ch Model AI!";
+                ModelRepairProgress = 100;
+                AppendRepairLog("🎉 HOÀN TẤT! Toàn bộ Model và thư viện đã sẵn sàng 100%.");
             }
             catch (Exception ex)
             {
-                ModelSetupLogText += "[L\u1ED6I] " + ex.Message;
+                AppendRepairLog($"❌ Lỗi: {ex.Message}");
+                Logger.Error("Lỗi sửa & tải Model tự động", ex);
             }
             finally
             {
-                _isRepairingModels = false;
-                CommandManager.InvalidateRequerySuggested();
+                IsRepairingModels = false;
             }
         }
 
@@ -575,11 +623,24 @@ namespace VoiceCraft.App_Core.ViewModels
                 {
                     if (modelKey.Contains("25hours") || modelKey.Contains("vivos"))
                     {
-                        _eqBassDb = 2.0; _eqTrebleDb = 1.5; _deHissCutoff = 7500.0; _vitsNoiseScale = 0.55;
+                        _eqBassDb = 2.0;
+                        _eqTrebleDb = 1.5;
+                        _deHissCutoff = 7500.0;
+                        _vitsNoiseScale = 0.55;
+                    }
+                    else if (modelKey.StartsWith("[VieNeu-TTS") || modelKey.StartsWith("[VietTTS"))
+                    {
+                        _eqBassDb = 2.0;
+                        _eqTrebleDb = 1.5;
+                        _deHissCutoff = 10500.0;
+                        _vitsNoiseScale = 0.67;
                     }
                     else
                     {
-                        _eqBassDb = 0.0; _eqTrebleDb = 0.0; _deHissCutoff = 10000.0; _vitsNoiseScale = 0.67;
+                        _eqBassDb = 0.0;
+                        _eqTrebleDb = 0.0;
+                        _deHissCutoff = 10000.0;
+                        _vitsNoiseScale = 0.67;
                     }
                 }
                 OnPropertyChanged(nameof(Speed));
@@ -592,43 +653,46 @@ namespace VoiceCraft.App_Core.ViewModels
                 OnPropertyChanged(nameof(DeHissDisplay));
                 OnPropertyChanged(nameof(VitsNoiseScale));
             }
-            finally { _isSwitchingModelProfile = false; }
+            finally
+            {
+                _isSwitchingModelProfile = false;
+            }
         }
 
         public void RefreshAvailableModels()
         {
             string currentSelection = _selectedModelFile;
             AvailableModels.Clear();
-            AvailableModels.Add(AutoModelName);
+            AvailableModels.Add("Tự động theo vùng miền (Auto)");
 
             try
             {
-                AvailableModels.Add("[VieNeu-TTS-24kHz] Gi\u1ECDng Nam Truy\u1EC1n C\u1EA3m (Vietnamese Neural Prosody)");
-                AvailableModels.Add("[VieNeu-TTS-24kHz] Gi\u1ECDng N\u1EEF Truy\u1EC1n C\u1EA3m (Vietnamese Neural Prosody)");
-                AvailableModels.Add("[VietTTS-HiFiGAN] Gi\u1ECDng N\u1EEF Mi\u1EC1n B\u1EAFc Chu\u1EA9n (Offline NAT + Prosody)");
-                AvailableModels.Add("[VietTTS-HiFiGAN] Gi\u1ECDng Nam Tr\u1EA7m Chu\u1EA9n (Offline VITS + HiFi-GAN)");
+                AvailableModels.Add("[VieNeu-TTS-24kHz] Giọng Nam Truyền Cảm (Vietnamese Neural Prosody)");
+                AvailableModels.Add("[VieNeu-TTS-24kHz] Giọng Nữ Truyền Cảm (Vietnamese Neural Prosody)");
+                AvailableModels.Add("[VietTTS-HiFiGAN] Giọng Nữ Miền Bắc Chuẩn (Offline NAT + Prosody)");
+                AvailableModels.Add("[VietTTS-HiFiGAN] Giọng Nam Trầm Chuẩn (Offline VITS + HiFi-GAN)");
 
-                AvailableModels.Add("[Multilingual-24kHz] en-US-AndrewMultilingualNeural (Nam \u0110\u1ECDc Vi\u1EC7t+Anh \u0110\u1ED3ng Nh\u1EA5t)");
-                AvailableModels.Add("[Multilingual-24kHz] en-US-AvaMultilingualNeural (N\u1EEF \u0110\u1ECDc Vi\u1EC7t+Anh \u0110\u1ED3ng Nh\u1EA5t)");
-                AvailableModels.Add("[Multilingual-24kHz] en-US-BrianMultilingualNeural (Nam Tr\u1EA7m Vi\u1EC7t+Anh \u0110\u1ED3ng Nh\u1EA5t)");
-                AvailableModels.Add("[Multilingual-24kHz] en-US-EmmaMultilingualNeural (N\u1EEF \u1EA4m Vi\u1EC7t+Anh \u0110\u1ED3ng Nh\u1EA5t)");
-                AvailableModels.Add("[Neural-24kHz] vi-VN-NamMinhNeural (Gi\u1ECDng Nam Vi\u1EC7t Si\u00EAu Th\u1EF1c)");
-                AvailableModels.Add("[Neural-24kHz] vi-VN-HoaiMyNeural (Gi\u1ECDng N\u1EEF Vi\u1EC7t Si\u00EAu Th\u1EF1c)");
+                AvailableModels.Add("[Multilingual-24kHz] en-US-AndrewMultilingualNeural (Nam Đọc Việt+Anh Đồng Nhất)");
+                AvailableModels.Add("[Multilingual-24kHz] en-US-AvaMultilingualNeural (Nữ Đọc Việt+Anh Đồng Nhất)");
+                AvailableModels.Add("[Multilingual-24kHz] en-US-BrianMultilingualNeural (Nam Trầm Việt+Anh Đồng Nhất)");
+                AvailableModels.Add("[Multilingual-24kHz] en-US-EmmaMultilingualNeural (Nữ Ấm Việt+Anh Đồng Nhất)");
+                AvailableModels.Add("[Neural-24kHz] vi-VN-NamMinhNeural (Giọng Nam Việt Siêu Thực)");
+                AvailableModels.Add("[Neural-24kHz] vi-VN-HoaiMyNeural (Giọng Nữ Việt Siêu Thực)");
 
                 if (File.Exists(Path.Combine(_modelsDir, "kokoro_24k", "kokoro-v1.0.onnx")))
                 {
-                    AvailableModels.Add("[Kokoro-82M-24kHz] af_heart (N\u1EEF M\u1EF9 Ph\u00F2ng Thu Top #1)");
-                    AvailableModels.Add("[Kokoro-82M-24kHz] af_bella (N\u1EEF M\u1EF9 Truy\u1EC1n C\u1EA3m)");
-                    AvailableModels.Add("[Kokoro-82M-24kHz] am_adam (Nam M\u1EF9 Tr\u1EA7m \u1EA4m)");
-                    AvailableModels.Add("[Kokoro-82M-24kHz] am_michael (Nam M\u1EF9 Ph\u00E1t Thanh Vi\u00EAn)");
-                    AvailableModels.Add("[Kokoro-82M-24kHz] bf_emma (N\u1EEF Anh Qu\u1ED1c Ho\u00E0ng Gia)");
-                    AvailableModels.Add("[Kokoro-82M-24kHz] bm_george (Nam Anh Qu\u1ED1c C\u1ED5 \u0110i\u1EC3n)");
+                    AvailableModels.Add("[Kokoro-82M-24kHz] af_heart (Nữ Mỹ Phòng Thu Top #1)");
+                    AvailableModels.Add("[Kokoro-82M-24kHz] af_bella (Nữ Mỹ Truyền Cảm)");
+                    AvailableModels.Add("[Kokoro-82M-24kHz] am_adam (Nam Mỹ Trầm Ấm)");
+                    AvailableModels.Add("[Kokoro-82M-24kHz] am_michael (Nam Mỹ Phát Thanh Viên)");
+                    AvailableModels.Add("[Kokoro-82M-24kHz] bf_emma (Nữ Anh Quốc Hoàng Gia)");
+                    AvailableModels.Add("[Kokoro-82M-24kHz] bm_george (Nam Anh Quốc Cổ Điển)");
                 }
 
                 if (Directory.Exists(Path.Combine(_modelsDir, "mms_vie_male")) &&
                     File.Exists(Path.Combine(_modelsDir, "mms_vie_male", "config.json")))
                 {
-                    AvailableModels.Add("[PyTorch] mms_vie_male (Meta AI Gi\u1ECDng Nam)");
+                    AvailableModels.Add("[PyTorch] mms_vie_male (Meta AI Giọng Nam)");
                 }
 
                 if (Directory.Exists(_modelsDir))
@@ -638,16 +702,25 @@ namespace VoiceCraft.App_Core.ViewModels
                         .Select(Path.GetFileName)
                         .OrderBy(n => n);
 
-                    foreach (var name in onnxFiles) AvailableModels.Add(name);
+                    foreach (var name in onnxFiles)
+                    {
+                        AvailableModels.Add(name);
+                    }
                 }
             }
-            catch (Exception ex) { Logger.Error("L\u1ED7i qu\u00E9t model", ex); }
+            catch (Exception ex)
+            {
+                Logger.Error("Lỗi quét danh sách model", ex);
+            }
 
-            _selectedModelFile = AvailableModels.Contains(currentSelection) ? currentSelection : AutoModelName;
+            if (AvailableModels.Contains(currentSelection))
+                _selectedModelFile = currentSelection;
+            else
+                _selectedModelFile = "Tự động theo vùng miền (Auto)";
+
             OnPropertyChanged(nameof(SelectedModelFile));
             OnPropertyChanged(nameof(IsAutoModelSelected));
             OnPropertyChanged(nameof(AutoModelOptionsVisibility));
-            OnPropertyChanged(nameof(MultiSpeakerVisibility));
             UpdateSelectedModelInfo();
         }
 
@@ -655,37 +728,37 @@ namespace VoiceCraft.App_Core.ViewModels
         {
             if (IsAutoModelSelected)
             {
-                SelectedModelInfoText = "Ch\u1EBF \u0111\u1ED9 T\u1EF1 \u0111\u1ED9ng: Cho ph\u00E9p t\u00F9y ch\u1ECDn V\u00F9ng mi\u1EC1n & Gi\u1EDB;i t\u00EDnh b\u00EAn d\u01B0\u1EDBi.";
+                SelectedModelInfoText = "Tự động phối hợp Model theo Vùng miền & Giới tính.";
                 return;
             }
             if (SelectedModelFile.StartsWith("[VieNeu-TTS-24kHz]"))
             {
-                SelectedModelInfoText = "Engine: VieNeu-TTS 24000 Hz | T\u1ED1i \u01B0u ng\u1EEF \u0111i\u1EC7u 6 thanh Ti\u1EBFng Vi\u1EC7t (V\u00F9ng mi\u1EC1n/Gi\u1EDB;i t\u00EDnh \u0111\u00E3 c\u1ED1 \u0111\u1ECBnh theo Model).";
+                SelectedModelInfoText = "Engine: VieNeu-TTS 24000 Hz | Tối ưu ngữ điệu 6 thanh Tiếng Việt & Nối âm tự nhiên.";
                 return;
             }
             if (SelectedModelFile.StartsWith("[VietTTS-HiFiGAN]"))
             {
-                SelectedModelInfoText = "Engine: VietTTS NAT + HiFi-GAN Offline | T\u1ED1i \u01B0u \u0111\u1ED9 \u1EA5m gi\u1ECDng Vi\u1EC7t.";
+                SelectedModelInfoText = "Engine: VietTTS NAT + HiFi-GAN (100% Offline) | Tối ưu độ ấm giọng Việt.";
                 return;
             }
             if (SelectedModelFile.StartsWith("[Multilingual-24kHz]"))
             {
-                SelectedModelInfoText = "Engine: Neural Multilingual 24000 Hz | \u0110\u1ECDc tr\u1EF1c ti\u1EBFp Vi\u1EC7t & Anh b\u1EB1ng 1 gi\u1ECDng duy nh\u1EA5t.";
+                SelectedModelInfoText = "Engine: Neural Multilingual 24000 Hz | Đọc trực tiếp Việt & Anh bằng 1 giọng duy nhất.";
                 return;
             }
             if (SelectedModelFile.StartsWith("[Neural-24kHz]"))
             {
-                SelectedModelInfoText = "Engine: Microsoft Neural 24000 Hz | Gi\u1ECDng Ti\u1EBFng Vi\u1EC7t chu\u1EA9n ph\u00F2ng thu.";
+                SelectedModelInfoText = "Engine: Microsoft Neural 24000 Hz | Giọng Tiếng Việt Nam/Nữ siêu thực.";
                 return;
             }
             if (SelectedModelFile.StartsWith("[Kokoro-82M-24kHz]"))
             {
-                SelectedModelInfoText = "Engine: Kokoro-82M ONNX (100% Offline) | T\u1EA7n s\u1ED1: 24000 Hz.";
+                SelectedModelInfoText = "Engine: Kokoro-82M ONNX (100% Offline) | Tần số: 24000 Hz | Top #1 Open-Weight TTS.";
                 return;
             }
             if (SelectedModelFile.StartsWith("[PyTorch]"))
             {
-                SelectedModelInfoText = "Engine: PyTorch VITS (100% Offline) | Gi\u1ECDng Nam b\u1EA3n ng\u1EEF Meta AI.";
+                SelectedModelInfoText = "Engine: PyTorch VITS (100% Offline) | Tần số gốc: 16000 Hz | Giọng Nam bản ngữ Meta AI.";
                 return;
             }
 
@@ -700,8 +773,8 @@ namespace VoiceCraft.App_Core.ViewModels
                     if (root.TryGetProperty("audio", out var audioProp) && audioProp.TryGetProperty("sample_rate", out var srProp))
                         sr = srProp.GetInt32();
                     int numSpk = root.TryGetProperty("num_speakers", out var spkProp) ? spkProp.GetInt32() : 1;
-                    string spkNote = numSpk > 1 ? $"{numSpk} gi\u1ECDng (Speaker ID: 0 -> {numSpk - 1})" : "1 gi\u1ECDng \u0111\u01A1n";
-                    SelectedModelInfoText = $"ONNX | T\u1EA7n s\u1ED1 g\u1ED1c: {sr} Hz | {spkNote}";
+                    string spkNote = numSpk > 1 ? $"{numSpk} giọng (Speaker ID: 0 -> {numSpk - 1})" : "1 giọng đơn";
+                    SelectedModelInfoText = $"ONNX | Tần số gốc: {sr} Hz | {spkNote}";
                     return;
                 }
                 catch { }
@@ -749,7 +822,7 @@ namespace VoiceCraft.App_Core.ViewModels
                     if (!string.IsNullOrEmpty(data.GitHubRepo)) _gitHubRepo = data.GitHubRepo;
                 }
             }
-            catch (Exception ex) { Logger.Error("Kh\u00F4ng th\u1EC3 \u0111\u1ECDc settings.json", ex); }
+            catch (Exception ex) { Logger.Error("Không thể đọc settings.json", ex); }
             finally { _isLoadingSettings = false; }
         }
 
@@ -779,7 +852,7 @@ namespace VoiceCraft.App_Core.ViewModels
                     Pitch = Pitch,
                     Volume = Volume,
                     IsVoiceCloneEnabled = IsVoiceCloneEnabled,
-                    IsCustomEqEnabled = IsCustomEqEnabled,
+                    IsEqPanelExpanded = IsEqPanelExpanded,
                     CloneReferencePath = CloneReferencePath,
                     CloneStrength = CloneStrength,
                     EqBassDb = EqBassDb,
@@ -792,7 +865,7 @@ namespace VoiceCraft.App_Core.ViewModels
                 string json = JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(_settingsFilePath, json);
             }
-            catch (Exception ex) { Logger.Error("Kh\u00F4ng th\u1EC3 l\u01B0u settings.json", ex); }
+            catch (Exception ex) { Logger.Error("Không thể lưu settings.json", ex); }
         }
 
         private void UpdatePlaybackProgress()
@@ -815,7 +888,7 @@ namespace VoiceCraft.App_Core.ViewModels
         private void UpdateTimeDisplay()
         {
             double curSec = Math.Max(0, CurrentPosition);
-            double totSec = Math.Max(0, TotalDuration > 0.05 ? TotalDuration : 0);
+            double totSec = Math.Max(0, TotalDuration > 0.11 ? TotalDuration : 0);
             double remSec = totSec > curSec ? (totSec - curSec) : 0;
 
             CurrentTimeText = FormatTimeCode(curSec);
@@ -843,6 +916,7 @@ namespace VoiceCraft.App_Core.ViewModels
         public Visibility StudioVisibility => IsSettingsOpen ? Visibility.Collapsed : Visibility.Visible;
         public Visibility SettingsVisibility => IsSettingsOpen ? Visibility.Visible : Visibility.Collapsed;
 
+        // --- MÀU SẮC & GIAO DIỆN (ĐÃ BỔ SUNG MÀU ĐEN & XÁM) ---
         private double _glassOpacity = 0.85;
         public double GlassOpacity
         {
@@ -887,19 +961,18 @@ namespace VoiceCraft.App_Core.ViewModels
         }
         public Visibility AeroReflectionVisibility => ShowAeroReflection ? Visibility.Visible : Visibility.Collapsed;
 
-        // BO SUNG MAU DEN TUYEN & XAM DAM VAO BANG MAU CAI DAT
         public string[] AeroThemes { get; } = {
-            "\u0110en Tuy\u1EC1n Nguy\u00EAn B\u1EA3n (Pure Pitch Black #050507)",
-            "X\u00E1m \u0110\u1EADm T\u1ED1i Gi\u1EA3n (Dark Charcoal Gray #22262C)",
-            "\u0110en Kh\u00F3i Windows 10 (Obsidian Glass)",
-            "Xanh B\u0103ng Windows 7 (Aero Ice Blue)",
-            "Xanh \u0110\u1EA1i D\u01B0\u01A1ng S\u00E2u (Deep Ocean Glass)",
-            "Xanh Ng\u1ECDc L\u1EE5c B\u1EA3o (Emerald Glass)",
-            "T\u00EDm Pha L\u00EA \u0110\u00EAm (Royal Amethyst)",
-            "\u0110\u1ECF H\u1ED3ng Ng\u1ECDc (Crimson Ruby Glass)",
-            "X\u00E1m B\u1EA1c Hi\u1EC7n \u0110\u1EA1i (Frosted Slate)"
+            "Đen Tuyền (Pure Pitch Black)",
+            "Xám Chuẩn (Neutral Charcoal Gray)",
+            "Đen Khói Windows 10 (Obsidian Glass)",
+            "Xám Bạc Hiện Đại (Frosted Slate)",
+            "Xanh Băng Windows 7 (Aero Ice Blue)",
+            "Xanh Đại Dương Sâu (Deep Ocean Glass)",
+            "Xanh Ngọc Lục Bảo (Emerald Glass)",
+            "Tím Pha Lê Đêm (Royal Amethyst)",
+            "Đỏ Hồng Ngọc (Crimson Ruby Glass)"
         };
-        private string _selectedAeroTheme = "\u0110en Kh\u00F3i Windows 10 (Obsidian Glass)";
+        private string _selectedAeroTheme = "Đen Khói Windows 10 (Obsidian Glass)";
         public string SelectedAeroTheme
         {
             get => _selectedAeroTheme;
@@ -909,12 +982,13 @@ namespace VoiceCraft.App_Core.ViewModels
         public string[] AccentColorList { get; } = {
             "Xanh Windows 10 (#0078D4)",
             "Xanh Aero Cyan (#00B4FF)",
-            "X\u00E1m Kim Lo\u1EA1i (#64748B)",
-            "\u0110en Than Ch\u00EC (#3F3F46)",
-            "Xanh Ng\u1ECDc L\u1EE5c B\u1EA3o (#10B981)",
-            "T\u00EDm Hi\u1EC7n \u0110\u1EA1i (#8B5CF6)",
-            "\u0110\u1ECF H\u1ED3ng Ruby (#F43F5E)",
-            "V\u00E0ng H\u1ED5 Ph\u00E1ch (#F59E0B)"
+            "Xanh Ngọc Lục Bảo (#10B981)",
+            "Xám Kim Loại (#64748B)",
+            "Đen Tuyền Viền Sáng (#27272A)",
+            "Tím Hiện Đại (#8B5CF6)",
+            "Đỏ Hồng Ruby (#F43F5E)",
+            "Vàng Hổ Phách (#F59E0B)",
+            "Xanh Băng Sáng (#38BDF8)"
         };
         private string _selectedAccentItem = "Xanh Windows 10 (#0078D4)";
         public string SelectedAccentItem
@@ -924,16 +998,16 @@ namespace VoiceCraft.App_Core.ViewModels
         }
 
         public string[] WaveformColorList { get; } = {
-            "Xanh S\u00F3ng \u00C2m Aero (#00B4FF)",
-            "X\u00E1m B\u1EA1c S\u00F3ng \u00C2m (#94A3B8)",
-            "\u0110en Kh\u00F3i S\u00F3ng \u00C2m (#52525B)",
+            "Xanh Sóng Âm Aero (#00B4FF)",
             "Xanh Windows 10 (#0078D4)",
-            "Xanh L\u1EE5c Neon (#00E676)",
-            "T\u00EDm S\u00F3ng \u00C2m (#A855F7)",
-            "Cam Ho\u00E0ng H\u00F4n (#FB923C)",
-            "Tr\u1EAFng B\u0103ng Tuy\u1EBFt (#E2E8F0)"
+            "Xanh Lục Neon (#00E676)",
+            "Xám Bạc Sóng Âm (#94A3B8)",
+            "Đen Khói Sóng Âm (#3F3F46)",
+            "Tím Sóng Âm (#A855F7)",
+            "Cam Hoàng Hôn (#FB923C)",
+            "Trắng Băng Tuyết (#E2E8F0)"
         };
-        private string _selectedWaveformColorItem = "Xanh S\u00F3ng \u00C2m Aero (#00B4FF)";
+        private string _selectedWaveformColorItem = "Xanh Sóng Âm Aero (#00B4FF)";
         public string SelectedWaveformColorItem
         {
             get => _selectedWaveformColorItem;
@@ -941,15 +1015,14 @@ namespace VoiceCraft.App_Core.ViewModels
         }
 
         public string[] SecondaryLineColorList { get; } = {
-            "V\u00E0ng Tia Ch\u1EDBp (#FFD600)",
-            "X\u00E1m B\u1EA1c S\u00E1ng (#CBD5E1)",
-            "\u0110en Than (#71717A)",
-            "Xanh Ng\u1ECDc S\u00E1ng (#00E5FF)",
-            "Xanh L\u00E1 Neon (#00E676)",
-            "H\u1ED3ng T\u00E2m \u0110i\u1EC3m (#FF4081)",
-            "Tr\u1EAFng Tinh Khi\u1EBFt (#FFFFFF)"
+            "Vàng Tia Chớp (#FFD600)",
+            "Xanh Ngọc Sáng (#00E5FF)",
+            "Xanh Lá Neon (#00E676)",
+            "Xám Sáng (#CBD5E1)",
+            "Hồng Tâm Điểm (#FF4081)",
+            "Trắng Tinh Khiết (#FFFFFF)"
         };
-        private string _selectedSecondaryLineColorItem = "V\u00E0ng Tia Ch\u1EDBp (#FFD600)";
+        private string _selectedSecondaryLineColorItem = "Vàng Tia Chớp (#FFD600)";
         public string SelectedSecondaryLineColorItem
         {
             get => _selectedSecondaryLineColorItem;
@@ -991,18 +1064,17 @@ namespace VoiceCraft.App_Core.ViewModels
             string cardHexA = cardAlpha.ToString("X2");
 
             string baseRgb = "12161F";
-            string cardRgb = "080D14";
-            if (SelectedAeroTheme.Contains("Pure Pitch Black")) { baseRgb = "050507"; cardRgb = "0A0A0D"; }
-            else if (SelectedAeroTheme.Contains("Dark Charcoal Gray")) { baseRgb = "22262C"; cardRgb = "16191E"; }
+            if (SelectedAeroTheme.Contains("Đen Tuyền")) baseRgb = "050507";
+            else if (SelectedAeroTheme.Contains("Xám Chuẩn")) baseRgb = "22252A";
             else if (SelectedAeroTheme.Contains("Windows 7")) baseRgb = "0D1F38";
-            else if (SelectedAeroTheme.Contains("\u0110\u1EA1i D\u01B0\u01A1ng")) baseRgb = "071B2E";
-            else if (SelectedAeroTheme.Contains("Ng\u1ECDc L\u1EE5c B\u1EA3o")) baseRgb = "092622";
-            else if (SelectedAeroTheme.Contains("T\u00EDm")) baseRgb = "1B102E";
-            else if (SelectedAeroTheme.Contains("\u0110\u1ECF")) baseRgb = "2B0D16";
-            else if (SelectedAeroTheme.Contains("X\u00E1m B\u1EA1c")) baseRgb = "282E36";
+            else if (SelectedAeroTheme.Contains("Đại Dương")) baseRgb = "071B2E";
+            else if (SelectedAeroTheme.Contains("Ngọc Lục Bảo")) baseRgb = "092622";
+            else if (SelectedAeroTheme.Contains("Tím")) baseRgb = "1B102E";
+            else if (SelectedAeroTheme.Contains("Đỏ")) baseRgb = "2B0D16";
+            else if (SelectedAeroTheme.Contains("Xám Bạc")) baseRgb = "1E242B";
 
             WindowGlassBrush = $"#{winHexA}{baseRgb}";
-            CardGlassBrush = $"#{cardHexA}{cardRgb}";
+            CardGlassBrush = $"#{cardHexA}080D14";
 
             AccentBrush = ExtractHex(SelectedAccentItem, "#0078D4");
             WaveformBrush = ExtractHex(SelectedWaveformColorItem, "#00B4FF");
@@ -1010,7 +1082,7 @@ namespace VoiceCraft.App_Core.ViewModels
             WindowBorderBrush = "#66" + AccentBrush.TrimStart('#');
         }
 
-        private string _inputText = "Xin ch\u00E0o! \u0110\u00E2y l\u00E0 phi\u00EAn b\u1EA3n n\u00E2ng c\u1EA5p VoiceCraft 0.0.2 t\u00EDch h\u1EE3p VieNeu-TTS, t\u00EDnh n\u0103ng Nh\u00E1i gi\u1ECDng AI t\u1EEB file m\u1EABu v\u00E0 b\u1ED9 l\u1ECDc \u00E2m thanh EQ ri\u00EAng cho t\u1EEBng Model.";
+        private string _inputText = "Xin chào! Đây là phiên bản nâng cấp VoiceCraft 1.0.0 tích hợp VieNeu-TTS, tính năng Nhái giọng AI chuẩn xác và bộ lọc âm thanh EQ riêng cho từng Model.";
         public string InputText
         {
             get => _inputText;
@@ -1025,17 +1097,17 @@ namespace VoiceCraft.App_Core.ViewModels
         public int CharCount => InputText?.Length ?? 0;
 
         public string[] Voices { get; } = {
-            "Song ng\u1EEF Vi\u1EC7t - Anh (T\u1EF1 \u0111\u1ED9ng)",
-            "Ti\u1EBFng Vi\u1EC7t - Mi\u1EC1n B\u1EAFc",
-            "Ti\u1EBFng Vi\u1EC7t - Mi\u1EC1n Trung",
-            "Ti\u1EBFng Vi\u1EC7t - Mi\u1EC1n Nam",
-            "English - US (Chu\u1EA9n M\u1EF9 22.05kHz)"
+            "Song ngữ Việt - Anh (Tự động)",
+            "Tiếng Việt - Miền Bắc",
+            "Tiếng Việt - Miền Trung",
+            "Tiếng Việt - Miền Nam",
+            "English - US (Chuẩn Mỹ 22.05kHz)"
         };
-        private string _selectedVoice = "Song ng\u1EEF Vi\u1EC7t - Anh (T\u1EF1 \u0111\u1ED9ng)";
+        private string _selectedVoice = "Song ngữ Việt - Anh (Tự động)";
         public string SelectedVoice { get => _selectedVoice; set { _selectedVoice = value; OnPropertyChanged(); SaveSettings(); } }
 
-        public string[] Genders { get; } = { "N\u1EEF (Female)", "Nam (Male)" };
-        private string _selectedGender = "N\u1EEF (Female)";
+        public string[] Genders { get; } = { "Nữ (Female)", "Nam (Male)" };
+        private string _selectedGender = "Nữ (Female)";
         public string SelectedGender { get => _selectedGender; set { _selectedGender = value; OnPropertyChanged(); SaveSettings(); } }
 
         private bool _bilingualAuto = true;
@@ -1086,7 +1158,7 @@ namespace VoiceCraft.App_Core.ViewModels
             }
         }
 
-        private string _connectionStatus = "\u0110ang ch\u1EDD...";
+        private string _connectionStatus = "Đang chờ...";
         public string ConnectionStatus { get => _connectionStatus; set { _connectionStatus = value; OnPropertyChanged(); } }
 
         private string _connectionColor = "Gray";
@@ -1124,7 +1196,7 @@ namespace VoiceCraft.App_Core.ViewModels
         }
         public string SynthesisProgressPercent => $"{(int)SynthesisProgress}%";
 
-        private string _synthesisStatusText = "\u0110ang chu\u1EA9n b\u1ECB t\u1ED5ng h\u1EE3p...";
+        private string _synthesisStatusText = "Đang chuẩn bị tổng hợp...";
         public string SynthesisStatusText { get => _synthesisStatusText; set { _synthesisStatusText = value; OnPropertyChanged(); } }
 
         private double _currentPosition;
@@ -1172,7 +1244,7 @@ namespace VoiceCraft.App_Core.ViewModels
                 _selectedHistoryItem = value;
                 if (value != null && File.Exists(value.FilePath))
                 {
-                    LoadAudioToTimeline(value.FilePath, false);
+                    LoadAudioAndWaveformToTimeline(value.FilePath);
                 }
                 OnPropertyChanged();
                 CommandManager.InvalidateRequerySuggested();
@@ -1189,10 +1261,10 @@ namespace VoiceCraft.App_Core.ViewModels
             set { _gitHubRepo = value; OnPropertyChanged(); SaveSettings(); }
         }
 
-        private string _updateStatusText = $"Phi\u00EAn b\u1EA3n hi\u1EC7n t\u1EA1i: {UpdateService.CurrentAppVersion} (Nh\u1EA5n 'Ki\u1EC3m tra c\u1EADp nh\u1EADt' \u0111\u1EC3 ki\u1EC3m tra t\u1EEB GitHub)";
+        private string _updateStatusText = $"Phiên bản hiện tại: v{UpdateService.CurrentAppVersion} (Nhấn 'Kiểm tra cập nhật' để kiểm tra từ GitHub)";
         public string UpdateStatusText { get => _updateStatusText; set { _updateStatusText = value; OnPropertyChanged(); } }
 
-        private string _updateChangelog = "Ch\u01B0a c\u00F3 d\u1EEF li\u1EC7u b\u1EA3n c\u1EADp nh\u1EADt m\u1EDB;i.";
+        private string _updateChangelog = "Chưa có dữ liệu bản cập nhật mới.";
         public string UpdateChangelog { get => _updateChangelog; set { _updateChangelog = value; OnPropertyChanged(); } }
 
         private double _updateProgress = 0;
@@ -1243,6 +1315,8 @@ namespace VoiceCraft.App_Core.ViewModels
         public ICommand PauseCommand { get; }
         public ICommand StopCommand { get; }
         public ICommand SaveCommand { get; }
+        public ICommand PasteTextCommand { get; }
+        public ICommand ClearTextCommand { get; }
         public ICommand SwitchTabCommand { get; }
         public ICommand RefreshModelsCommand { get; }
         public ICommand AdjustSpeakerIdCommand { get; }
@@ -1250,18 +1324,14 @@ namespace VoiceCraft.App_Core.ViewModels
         public ICommand PreviewCloneSampleCommand { get; }
         public ICommand ClearCloneSampleCommand { get; }
         public ICommand ResetEqCommand { get; }
-        public ICommand ApplyAudioPresetCommand { get; }
-        public ICommand ClearTextCommand { get; }
-        public ICommand PasteTextCommand { get; }
-        public ICommand OpenSelectedHistoryFileCommand { get; }
         public ICommand AdjustSpeedCommand { get; }
         public ICommand SetSpeedPresetCommand { get; }
         public ICommand AdjustPitchCommand { get; }
         public ICommand SetPitchPresetCommand { get; }
         public ICommand RestartEngineCommand { get; }
-        public ICommand RepairModelsCommand { get; }
         public ICommand OpenFolderCommand { get; }
         public ICommand ClearCacheCommand { get; }
+        public ICommand RepairAndDownloadModelsCommand { get; }
         public ICommand CheckUpdateCommand { get; }
         public ICommand DownloadUpdateCommand { get; }
         public ICommand OpenUpdateFolderCommand { get; }
@@ -1269,66 +1339,71 @@ namespace VoiceCraft.App_Core.ViewModels
         private async Task CheckForUpdateAsync()
         {
             IsCheckingUpdate = true;
-            UpdateStatusText = "\u23F3 \u0110ang k\u1EBFt n\u1ED1i GitHub Releases API...";
+            UpdateStatusText = "⏳ Đang kết nối GitHub Releases API...";
             try
             {
                 _latestUpdateInfo = await _updateService.CheckForUpdatesAsync(GitHubRepo);
                 IsUpdateAvailable = _latestUpdateInfo.IsUpdateAvailable;
                 UpdateChangelog = string.IsNullOrWhiteSpace(_latestUpdateInfo.ReleaseNotes)
-                    ? "Kh\u00F4ng c\u00F3 ghi ch\u00FA ph\u00E1t h\u00E0nh."
+                    ? "Không có ghi chú phát hành."
                     : _latestUpdateInfo.ReleaseNotes;
 
                 if (_latestUpdateInfo.IsUpdateAvailable)
-                    UpdateStatusText = $"\uD83C\uDF89 Ph\u00E1t hi\u1EC7n phi\u00EAn b\u1EA3n m\u1EDBi: v{_latestUpdateInfo.LatestVersion} (Hi\u1EC7n t\u1EA1i: v{AppVersion}) - Nh\u1EA5n 'T\u1EA3i b\u1EA3n m\u1EDBi'!";
+                    UpdateStatusText = $"🎉 Phát hiện phiên bản mới: v{_latestUpdateInfo.LatestVersion} (Hiện tại: v{AppVersion})";
                 else
-                    UpdateStatusText = $"\u2714 B\u1EA1n \u0111ang s\u1EED d\u1EE5ng phi\u00EAn b\u1EA3n m\u1EDBi nh\u1EA5t (v{_latestUpdateInfo.LatestVersion}). V\u1EABn c\u00F3 th\u1EC3 nh\u1EA5n 'T\u1EA3i b\u1EA3n m\u1EDBi' \u0111\u1EC3 t\u1EA3i l\u1EA1i g\u00F3i Release.";
+                    UpdateStatusText = $"✔ Bạn đang sử dụng phiên bản mới nhất (v{AppVersion}).";
             }
             catch (Exception ex)
             {
-                UpdateStatusText = "\u274C L\u1ED7i ki\u1EC3m tra c\u1EADp nh\u1EADt: " + ex.Message;
+                UpdateStatusText = "❌ Lỗi kiểm tra cập nhật: " + ex.Message;
+                Logger.Error("Lỗi kiểm tra cập nhật GitHub", ex);
             }
             finally { IsCheckingUpdate = false; }
         }
 
         private async Task DownloadUpdateAsync()
         {
-            if (_latestUpdateInfo == null || string.IsNullOrEmpty(_latestUpdateInfo.DownloadUrl)) return;
+            if (_latestUpdateInfo == null || !_latestUpdateInfo.IsUpdateAvailable) return;
             IsDownloadingUpdate = true;
             UpdateProgress = 0;
-            UpdateStatusText = $"\u23F3 \u0110ang t\u1EA3i b\u1EA3n c\u1EADp nh\u1EADt v{_latestUpdateInfo.LatestVersion}...";
+            UpdateStatusText = $"⏳ Đang tải bản cập nhật v{_latestUpdateInfo.LatestVersion}...";
             try
             {
                 var progress = new Progress<double>(pct =>
                 {
                     UpdateProgress = pct;
-                    UpdateStatusText = $"\u23F3 \u0110ang t\u1EA3i g\u00F3i c\u1EADp nh\u1EADt: {pct:0.0}%";
+                    UpdateStatusText = $"⏳ Đang tải gói cập nhật: {pct:0.0}%";
                 });
                 _downloadedUpdateFilePath = await _updateService.DownloadUpdateAsync(_latestUpdateInfo, progress);
-                UpdateStatusText = $"\u2705 \u0110\u00E3 t\u1EA3i xong: {Path.GetFileName(_downloadedUpdateFilePath)}";
+                UpdateStatusText = $"✅ Đã tải xong: {Path.GetFileName(_downloadedUpdateFilePath)}";
                 _updateService.OpenUpdateFolderOrFile(_downloadedUpdateFilePath);
             }
             catch (Exception ex)
             {
-                UpdateStatusText = "\u274C L\u1ED7i t\u1EA3i b\u1EA3n c\u1EADp nh\u1EADt: " + ex.Message;
+                UpdateStatusText = "❌ Lỗi tải bản cập nhật: " + ex.Message;
+                Logger.Error("Lỗi tải gói cập nhật GitHub", ex);
             }
             finally { IsDownloadingUpdate = false; }
         }
 
         private async Task InitializeEngineAsync()
         {
-            ConnectionStatus = "\u0110ang kh\u1EDFi \u0111\u1ED9ng Engine...";
+            ConnectionStatus = "Đang khởi động Engine...";
             ConnectionColor = "#FFB300";
+            Logger.Info("Tiến hành kết nối TTS Engine...");
 
             bool isReady = await _engineManager.StartEngineAsync();
             if (isReady)
             {
-                ConnectionStatus = "S\u1EE7n s\u00E0ng (Studio v0.0.2)";
+                ConnectionStatus = $"Sẵn sàng (v{AppVersion})";
                 ConnectionColor = "#00E676";
+                Logger.Info("Engine đã kết nối thành công tại cổng 8000.");
             }
             else
             {
-                ConnectionStatus = "L\u1ED7i k\u1EBFt n\u1ED1i Engine";
+                ConnectionStatus = "Lỗi kết nối Engine";
                 ConnectionColor = "#FF5252";
+                Logger.Error("Không thể kết nối với Engine API (Timeout).");
             }
         }
 
@@ -1336,8 +1411,8 @@ namespace VoiceCraft.App_Core.ViewModels
         {
             IsProcessing = true;
             SynthesisProgress = 5;
-            SynthesisStatusText = "\u0110ang ph\u00E2n t\u00EDch ng\u1EEF c\u1EA3nh & n\u1EA1p Model...";
-            ConnectionStatus = "\u0110ang t\u1ED5ng h\u1EE3p gi\u1ECDng n\u00F3i...";
+            SynthesisStatusText = "Đang phân tích ngữ cảnh & nạp Model...";
+            ConnectionStatus = "Đang tổng hợp giọng nói...";
             ConnectionColor = "#00C8FF";
 
             using var cts = new CancellationTokenSource();
@@ -1353,19 +1428,21 @@ namespace VoiceCraft.App_Core.ViewModels
                             if (SynthesisProgress < 35)
                             {
                                 SynthesisProgress += 4;
-                                SynthesisStatusText = $"\u0110ang x\u1EED l\u00FD v\u0103n b\u1EA3n v\u1EDBi Model: {SelectedModelFile}...";
+                                SynthesisStatusText = $"Đang xử lý văn bản với Model: {SelectedModelFile}...";
                             }
                             else if (SynthesisProgress < 72)
                             {
                                 SynthesisProgress += 3;
                                 SynthesisStatusText = IsVoiceCloneEnabled
-                                    ? $"\u0110ang nh\u00E1i gi\u1ECDng theo m\u1EABu ({CloneStrengthPercent})..."
-                                    : "\u0110ang t\u1ED5ng h\u1EE3p s\u00F3ng \u00E2m n\u01A1-ron...";
+                                    ? $"Đang đồng bộ cao độ F0 & âm sắc mẫu ({CloneStrengthPercent})..."
+                                    : "Đang tổng hợp sóng âm nơ-ron (Speaker ID: " + SpeakerId + ")...";
                             }
                             else if (SynthesisProgress < 92)
                             {
                                 SynthesisProgress += 1.5;
-                                SynthesisStatusText = "\u0110ang x\u1EED l\u00FD h\u1EADu k\u1EF3 DSP & chu\u1EA9n h\u00F3a \u00E2m l\u01B0\u1EE3ng...";
+                                SynthesisStatusText = BypassDsp
+                                    ? "Đang xuất trực tiếp sóng âm nguyên bản (Raw Mode)..."
+                                    : $"Đang lọc Studio EQ (Bass: {EqBassDisplay}, Treble: {EqTrebleDisplay})...";
                             }
                         });
                     }
@@ -1381,7 +1458,7 @@ namespace VoiceCraft.App_Core.ViewModels
                     voice_id = SelectedVoice,
                     model_file = SelectedModelFile,
                     speaker_id = SpeakerId,
-                    bypass_dsp = BypassDsp || (!IsCustomEqEnabled && !IsVoiceCloneEnabled),
+                    bypass_dsp = BypassDsp,
                     gender = SelectedGender,
                     speed = Speed,
                     pitch = Pitch,
@@ -1391,33 +1468,37 @@ namespace VoiceCraft.App_Core.ViewModels
                     clone_reference_path = CloneReferencePath,
                     clone_strength = CloneStrength,
                     vits_noise_scale = VitsNoiseScale,
-                    eq_bass_db = IsCustomEqEnabled ? EqBassDb : 0.0,
-                    eq_treble_db = IsCustomEqEnabled ? EqTrebleDb : 0.0,
-                    de_hiss_cutoff = IsCustomEqEnabled ? DeHissCutoff : 11500.0
+                    eq_bass_db = EqBassDb,
+                    eq_treble_db = EqTrebleDb,
+                    de_hiss_cutoff = DeHissCutoff
                 };
-                var response = await _httpClient.PostAsJsonAsync("http://127.0.0.1:8000/synthesize", payload);
+                var response = await _httpClient.PostAsJsonAsync("http://127.1.0.0:8000/synthesize", payload);
                 cts.Cancel();
 
                 if (response.IsSuccessStatusCode)
                 {
                     SynthesisProgress = 96;
+                    SynthesisStatusText = "Đang dựng sóng âm thanh & hoàn tất file .WAV...";
+
                     byte[] audioBytes = await response.Content.ReadAsByteArrayAsync();
                     string modTag = IsAutoModelSelected
                         ? (SelectedGender.Contains("Nam") ? "AutoNam" : "AutoNu")
                         : Path.GetFileNameWithoutExtension(SelectedModelFile.Replace("[", "").Replace("]", "")).Split(' ')[0];
                     string cloneTag = (IsVoiceCloneEnabled && !string.IsNullOrEmpty(CloneReferencePath)) ? "_CLONE" : "";
-                    string fileName = $"VC_{modTag}{cloneTag}_{DateTime.Now:HHmmss}.wav";
+                    string rawTag = BypassDsp ? "_RAW" : "";
+                    string fileName = $"VC_{modTag}{cloneTag}{rawTag}_{DateTime.Now:HHmmss}.wav";
                     string savedPath = Path.Combine(_outputDir, fileName);
                     await File.WriteAllBytesAsync(savedPath, audioBytes);
 
                     SynthesisProgress = 100;
+                    SynthesisStatusText = "Hoàn tất 100%!";
                     await Task.Delay(100);
 
                     Application.Current.Dispatcher.Invoke(() =>
                     {
                         var newItem = new HistoryItem
                         {
-                            DisplayText = $"[{DateTime.Now:HH:mm:ss}] {modTag}{cloneTag} | {Speed:0.0#}x",
+                            DisplayText = $"[{DateTime.Now:HH:mm:ss}] {modTag}{cloneTag}{rawTag} | {Speed:0.0#}x",
                             FilePath = savedPath
                         };
                         HistoryList.Insert(0, newItem);
@@ -1429,46 +1510,50 @@ namespace VoiceCraft.App_Core.ViewModels
                         }
                     });
 
-                    ConnectionStatus = "S\u1EE7n s\u00E0ng (Studio v0.0.2)";
+                    ConnectionStatus = $"Sẵn sàng (v{AppVersion})";
                     ConnectionColor = "#00E676";
                 }
                 else
                 {
-                    ConnectionStatus = "C\u1EA3nh b\u00E1o t\u1EEB Engine";
+                    ConnectionStatus = "Cảnh báo từ Engine";
                     ConnectionColor = "#FF5252";
                     string errDetail = await response.Content.ReadAsStringAsync();
-                    MessageBox.Show($"L\u1ED7i t\u1EEB Engine ({response.StatusCode}):\n{errDetail}", "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show($"Lỗi từ Engine ({response.StatusCode}):\n{errDetail}", "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
             catch (Exception ex)
             {
                 cts.Cancel();
-                ConnectionStatus = "L\u1ED7i k\u1EBFt n\u1ED1i Engine";
+                ConnectionStatus = "Lỗi kết nối Engine";
                 ConnectionColor = "#FF5252";
-                MessageBox.Show("Kh\u00F4ng th\u1EC3 k\u1EBFt n\u1ED1i t\u1EDB;i TTS Engine!\nChi ti\u1EBFt: " + ex.Message, "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Error);
+                Logger.Error("Lỗi hệ thống khi gọi API Synthesize", ex);
+                MessageBox.Show("Không thể kết nối tới TTS Engine. Hãy mở Cài đặt (⚙) -> Khởi động lại Engine!\nChi tiết: " + ex.Message, "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Error);
             }
-            finally { IsProcessing = false; }
+            finally
+            {
+                IsProcessing = false;
+            }
         }
 
         private void SaveFile(object obj)
         {
             if (string.IsNullOrEmpty(_currentAudioPath) || !File.Exists(_currentAudioPath)) return;
-            var dialog = new SaveFileDialog { Filter = "Wave Audio|*.wav", Title = "L\u01B0u file \u00E2m thanh", FileName = Path.GetFileName(_currentAudioPath) };
+            var dialog = new SaveFileDialog { Filter = "Wave Audio|*.wav", Title = "Lưu file âm thanh", FileName = Path.GetFileName(_currentAudioPath) };
             if (dialog.ShowDialog() == true)
             {
                 try
                 {
                     File.Copy(_currentAudioPath, dialog.FileName, true);
-                    MessageBox.Show("\u0110\u00E3 l\u01B0u file \u00E2m thanh th\u00E0nh c\u00F4ng!", "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show("Đã lưu file âm thanh thành công!", "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show("L\u1ED7i khi l\u01B0u file: " + ex.Message, "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show("Lỗi khi lưu file: " + ex.Message, "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
         }
 
-        // NANG CAP GENERATE WAVEFORM DUNG AUDIOFILEREADER (DOC DUOC MOI CHUAN .WAV VA .MP3)
+        // Hỗ trợ vẽ sóng âm thanh cho cả file .WAV lẫn .MP3 (Khi chọn file mẫu Nhái giọng)
         private PointCollection GenerateWaveform(string filePath)
         {
             var points = new PointCollection();
@@ -1480,24 +1565,24 @@ namespace VoiceCraft.App_Core.ViewModels
             {
                 using (var reader = new AudioFileReader(filePath))
                 {
-                    int bytesPerSample = Math.Max(4, reader.WaveFormat.BitsPerSample / 8);
-                    long totalSamples = Math.Max(1, reader.Length / bytesPerSample);
-                    int samplesPerPixel = Math.Max(1, (int)(totalSamples / width));
-                    float[] sampleBuffer = new float[Math.Max(64, samplesPerPixel)];
+                    int channels = Math.Max(1, reader.WaveFormat.Channels);
+                    long totalFloats = reader.Length / 4;
+                    int floatsPerPixel = Math.Max(channels, (int)(totalFloats / width));
+                    float[] buffer = new float[floatsPerPixel];
 
                     var topPoints = new List<Point>();
                     var bottomPoints = new List<Point>();
 
-                    int x = 0, samplesRead;
-                    while ((samplesRead = reader.Read(sampleBuffer, 0, sampleBuffer.Length)) > 0 && x <= width)
+                    int x = 0, floatsRead;
+                    while ((floatsRead = reader.Read(buffer, 0, buffer.Length)) > 0 && x <= width)
                     {
-                        float max = 0;
-                        for (int i = 0; i < samplesRead; i++)
+                        float max = 0f;
+                        for (int i = 0; i < floatsRead; i++)
                         {
-                            float val = Math.Abs(sampleBuffer[i]);
+                            float val = Math.Abs(buffer[i]);
                             if (val > max) max = val;
                         }
-                        max = Math.Min(1.0f, max);
+                        max = Math.Clamp(max, 0f, 1f);
                         topPoints.Add(new Point(x, midY - (max * midY * 0.92)));
                         bottomPoints.Insert(0, new Point(x, midY + (max * midY * 0.92)));
                         x++;
@@ -1509,7 +1594,10 @@ namespace VoiceCraft.App_Core.ViewModels
                     points.Add(new Point(0, midY));
                 }
             }
-            catch (Exception ex) { Logger.Error("L\u1ED7i v\u1EBD waveform UI", ex); }
+            catch (Exception ex)
+            {
+                Logger.Error("Lỗi vẽ waveform UI", ex);
+            }
 
             return points;
         }

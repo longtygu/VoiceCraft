@@ -11,8 +11,8 @@ namespace VoiceCraft.App_Core.Services
     public class UpdateInfo
     {
         public bool IsUpdateAvailable { get; set; }
-        public string CurrentVersion { get; set; } = "0.0.1";
-        public string LatestVersion { get; set; } = "0.0.2";
+        public string CurrentVersion { get; set; } = "1.0.0";
+        public string LatestVersion { get; set; } = "1.0.0";
         public string ReleaseNotes { get; set; } = "";
         public string DownloadUrl { get; set; } = "";
         public string HtmlUrl { get; set; } = "";
@@ -21,14 +21,13 @@ namespace VoiceCraft.App_Core.Services
 
     public class UpdateService : IDisposable
     {
-        // De CurrentAppVersion = "0.0.1" de ban bam "Kiem tra cap nhat" se phat hien ngay ban v0.0.2 tren GitHub!
-        public const string CurrentAppVersion = "0.0.1";
+        public const string CurrentAppVersion = "1.0.0";
         private readonly HttpClient _httpClient;
 
         public UpdateService()
         {
             _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-            _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("VoiceCraft-Updater", "0.0.2"));
+            _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("VoiceCraft-Updater", CurrentAppVersion));
             _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         }
 
@@ -50,7 +49,7 @@ namespace VoiceCraft.App_Core.Services
                 using var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
 
-                string tagName = root.TryGetProperty("tag_name", out var tagProp) ? (tagProp.GetString() ?? "0.0.2") : "0.0.2";
+                string tagName = root.TryGetProperty("tag_name", out var tagProp) ? (tagProp.GetString() ?? "1.0.0") : "1.0.0";
                 string latestVerStr = tagName.TrimStart('v', 'V', ' ');
                 result.LatestVersion = latestVerStr;
                 result.ReleaseNotes = root.TryGetProperty("body", out var bodyProp) ? (bodyProp.GetString() ?? "") : "";
@@ -80,7 +79,6 @@ namespace VoiceCraft.App_Core.Services
                 return result;
             }
 
-            // Neu chua tao Release tren giao dien Web ma da day Git Tag (v0.0.2) -> Tu dong doc tu API Tags cua GitHub!
             string tagsApiUrl = $"https://api.github.com/repos/{cleanRepo}/tags";
             using var tagResp = await _httpClient.GetAsync(tagsApiUrl);
             if (tagResp.IsSuccessStatusCode)
@@ -91,20 +89,20 @@ namespace VoiceCraft.App_Core.Services
                 if (arr.ValueKind == JsonValueKind.Array && arr.GetArrayLength() > 0)
                 {
                     var firstTag = arr[0];
-                    string tagName = firstTag.TryGetProperty("name", out var nProp) ? (nProp.GetString() ?? "v0.0.2") : "v0.0.2";
+                    string tagName = firstTag.TryGetProperty("name", out var nProp) ? (nProp.GetString() ?? "v1.0.0") : "v1.0.0";
                     string latestVerStr = tagName.TrimStart('v', 'V', ' ');
                     result.LatestVersion = latestVerStr;
                     result.DownloadUrl = firstTag.TryGetProperty("zipball_url", out var zProp)
                         ? (zProp.GetString() ?? $"https://github.com/{cleanRepo}/archive/refs/tags/{tagName}.zip")
                         : $"https://github.com/{cleanRepo}/archive/refs/tags/{tagName}.zip";
                     result.AssetFileName = $"VoiceCraft_Update_{latestVerStr}.zip";
-                    result.ReleaseNotes = $"B\u1EA3n ph\u00E1t h\u00E0nh VoiceCraft {tagName} tr\u00EAn GitHub ({cleanRepo}):\n- Giao di\u1EC7n C\u00F4ng t\u1EAFc g\u1EA1t (Toggle Switch), thu g\u1ECDn Tab 2 & 3.\n- N\u00E2ng c\u1EA5p l\u00F5i Nh\u00E1i gi\u1ECDng AI b\u1EA3o to\u00E0n 100% nguy\u00EAn \u00E2m.\n- B\u1ED5 sung m\u00E0u \u0110en/X\u00E1m & C\u00F4ng c\u1EE5 S\u1EEDa/T\u1EA3i Model t\u1EF1 \u0111\u1ED9ng.";
+                    result.ReleaseNotes = $"B\u1EA3n ph\u00E1t h\u00E0nh ch\u00EDnh th\u1EE9c VoiceCraft Studio {tagName} ({cleanRepo}):\n- Giao di\u1EC7n C\u00F4ng t\u1EAFc g\u1EA1t (Toggle Switch), thu g\u1ECDn Tab 2 & 3.\n- N\u00E2ng c\u1EA5p l\u00F5i Nh\u00E1i gi\u1ECDng AI b\u1EA3o to\u00E0n 100% nguy\u00EAn \u00E2m.\n- B\u1ED5 sung m\u00E0u \u0110en/X\u00E1m, n\u00FAt M\u1EDF th\u01B0 m\u1EE5c Output & C\u00F4ng c\u1EE5 S\u1EEDa/T\u1EA3i Model t\u1EF1 \u0111\u1ED9ng.";
                     result.IsUpdateAvailable = CompareVersions(latestVerStr, CurrentAppVersion) > 0;
                     return result;
                 }
             }
 
-            result.ReleaseNotes = $"Kho l\u01B0u tr\u1EEF '{cleanRepo}' ch\u01B0a c\u00F3 tag ho\u1EB7c release c\u00F4ng khai.";
+            result.ReleaseNotes = $"Kho l\u01B0u tr\u1EEF '{cleanRepo}' hi\u1EC7n \u0111ang \u1EDF phi\u00EAn b\u1EA3n m\u1EDBi nh\u1EA5t (v{CurrentAppVersion}).";
             return result;
         }
 

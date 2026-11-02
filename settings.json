@@ -1,13 +1,13 @@
 {
-  "SelectedAeroTheme": "X\u00E1m B\u1EA1c Hi\u1EC7n \u0110\u1EA1i (Frosted Slate)",
+  "SelectedAeroTheme": "\u0110en Tuy\u1EC1n (Pure Pitch Black)",
   "SelectedAccentItem": "Xanh Ng\u1ECDc L\u1EE5c B\u1EA3o (#10B981)",
   "SelectedWaveformColorItem": "Cam Ho\u00E0ng H\u00F4n (#FB923C)",
   "SelectedSecondaryLineColorItem": "V\u00E0ng Tia Ch\u1EDBp (#FFD600)",
-  "GlassOpacity": 1,
-  "CardOpacity": 0.95,
+  "GlassOpacity": 0.25,
+  "CardOpacity": 0.15,
   "ShowAeroReflection": false,
   "SelectedVoice": "Song ng\u1EEF Vi\u1EC7t - Anh (T\u1EF1 \u0111\u1ED9ng)",
-  "SelectedModelFile": "[Multilingual-24kHz] en-US-BrianMultilingualNeural (Nam Tr\u1EA7m Vi\u1EC7t\u002BAnh \u0110\u1ED3ng Nh\u1EA5t)",
+  "SelectedModelFile": "[Multilingual-24kHz] en-US-AvaMultilingualNeural (N\u1EEF \u0110\u1ECDc Vi\u1EC7t\u002BAnh \u0110\u1ED3ng Nh\u1EA5t)",
   "SpeakerId": 46,
   "BypassDsp": false,
   "SelectedGender": "N\u1EEF (Female)",
@@ -17,13 +17,14 @@
   "Speed": 1,
   "Pitch": 1,
   "Volume": 100,
-  "IsVoiceCloneEnabled": false,
-  "CloneReferencePath": "C:\\Users\\LONGTYGU\\Desktop\\AI music\\T\u00E0n Phai.wav",
+  "IsVoiceCloneEnabled": true,
+  "IsEqPanelExpanded": false,
+  "CloneReferencePath": "",
   "CloneStrength": 0.8,
-  "EqBassDb": 0,
-  "EqTrebleDb": 0,
+  "EqBassDb": 6.5,
+  "EqTrebleDb": -3,
   "DeHissCutoff": 10000,
-  "VitsNoiseScale": 0.67,
+  "VitsNoiseScale": 0.9,
   "ModelProfiles": {
     "[Multilingual-24kHz] en-US-AndrewMultilingualNeural (Nam \u0110\u1ECDc Vi\u1EC7t\u002BAnh \u0110\u1ED3ng Nh\u1EA5t)": {
       "Speed": 1,
@@ -56,6 +57,38 @@
       "EqTrebleDb": 0,
       "DeHissCutoff": 10000,
       "VitsNoiseScale": 0.67
+    },
+    "[Neural-24kHz] vi-VN-NamMinhNeural (Gi\u1ECDng Nam Vi\u1EC7t Si\u00EAu Th\u1EF1c)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 0,
+      "EqTrebleDb": 0,
+      "DeHissCutoff": 10000,
+      "VitsNoiseScale": 0.67
+    },
+    "[Kokoro-82M-24kHz] af_heart (N\u1EEF M\u1EF9 Ph\u00F2ng Thu Top #1)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 0,
+      "EqTrebleDb": 0,
+      "DeHissCutoff": 10000,
+      "VitsNoiseScale": 0.67
+    },
+    "[VietTTS-HiFiGAN] Gi\u1ECDng Nam Tr\u1EA7m Chu\u1EA9n (Offline VITS \u002B HiFi-GAN)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 2,
+      "EqTrebleDb": 1.5,
+      "DeHissCutoff": 10500,
+      "VitsNoiseScale": 0.67
+    },
+    "[Multilingual-24kHz] en-US-AvaMultilingualNeural (N\u1EEF \u0110\u1ECDc Vi\u1EC7t\u002BAnh \u0110\u1ED3ng Nh\u1EA5t)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 6.5,
+      "EqTrebleDb": -3,
+      "DeHissCutoff": 10000,
+      "VitsNoiseScale": 0.9
     }
   },
   "GitHubRepo": "Longtygu/VoiceCraft"
