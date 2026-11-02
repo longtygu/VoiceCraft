@@ -1,4 +1,4 @@
-$modelsDir = Join-Path $PSScriptRoot "Models"
+﻿$modelsDir = Join-Path $PSScriptRoot "Models"
 $kokoroDir = Join-Path $modelsDir "kokoro_24k"
 $mmsDir = Join-Path $modelsDir "mms_vie_male"
 New-Item -ItemType Directory -Path $modelsDir -Force | Out-Null
@@ -38,5 +38,4 @@ if (!(Test-Path (Join-Path $mmsDir "config.json"))) {
     Write-Host "[4/4] Downloading Meta AI MMS Vietnamese Male model..." -ForegroundColor Cyan
     & python -c "from transformers import VitsModel, AutoTokenizer; m='facebook/mms-tts-vie'; d=r'$mmsDir'; AutoTokenizer.from_pretrained(m).save_pretrained(d); VitsModel.from_pretrained(m).save_pretrained(d)"
 }
-
 Write-Host "[DONE] All models installed successfully!" -ForegroundColor Green

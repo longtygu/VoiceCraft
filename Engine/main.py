@@ -1090,7 +1090,21 @@ def post_process_master_chain(pcm: np.ndarray, req: TTSRequest, target_sr: int =
         de_hiss_cutoff=req.de_hiss_cutoff
     )
 
+    wav_f = apply_soft_broadcast_limiter(wav_f)
     return np.clip(wav_f, -32767, 32767).astype(np.int16)
+
+
+def apply_soft_broadcast_limiter(samples: np.ndarray) -> np.ndarray:
+    """Chong re va vo tieng (Soft-Knee Broadcast Limiter -1.0 dBTP) khi tang Bass/Treble cao."""
+    if samples is None or samples.size == 0:
+        return samples
+    x = samples.astype(np.float32) / 32768.0
+    x = x - np.mean(x)
+    peak = float(np.max(np.abs(x)))
+    if peak > 0.002:
+        x = x * (0.88 / peak)
+    limited = np.tanh(x * 1.15) / np.tanh(1.15)
+    return (limited * 30500.0).astype(np.float32)
 
 async def build_full_audio_async(req: TTSRequest, out_path: str):
     target_sr = 22050

@@ -1,4 +1,4 @@
-<Window x:Class="VoiceCraft.MainWindow"
+﻿<Window x:Class="VoiceCraft.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:VoiceCraft.App_Core.ViewModels"
@@ -253,8 +253,12 @@
                         </Grid.RowDefinitions>
 
                         <Grid Grid.Row="0" Margin="0,0,0,8">
-                            <TextBlock Text="SOẠN THẢO VĂN BẢN" Foreground="{Binding AccentBrush, FallbackValue=#0078D4}" FontWeight="Bold" FontSize="11.5"/>
-                            <TextBlock Text="{Binding CharCount, StringFormat={}{0} / 5000 ký tự}" HorizontalAlignment="Right" Foreground="#B0C8E0" FontSize="12"/>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="SOáº N THáº¢O VÄ‚N Báº¢N" Foreground="{Binding AccentBrush, FallbackValue=#0078D4}" FontWeight="Bold" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                <Button Content="ðŸ“‹ DÃ¡n vÄƒn báº£n" Command="{Binding PasteTextCommand}" Style="{StaticResource MiniChipBtn}" Padding="8,2"/>
+                                <Button Content="ðŸ§¹ XÃ³a tráº¯ng" Command="{Binding ClearTextCommand}" Style="{StaticResource MiniChipBtn}" Padding="8,2"/>
+                            </StackPanel>
+                            <TextBlock Text="{Binding CharCount, StringFormat={}{0} / 5000 kÃ½ tá»±}" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#B0C8E0" FontSize="12"/>
                         </Grid>
 
                         <Grid Grid.Row="1">

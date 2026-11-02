@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -174,6 +174,27 @@ namespace VoiceCraft.App_Core.ViewModels
                 DeHissCutoff = 10000.0;
                 VitsNoiseScale = 0.67;
             });
+
+            ApplyAudioPresetCommand = new RelayCommand((param) =>
+            {
+                string preset = param?.ToString() ?? "Clean";
+                BypassDsp = false;
+                if (preset == "Broadcast") { Speed = 1.0; Pitch = 1.0; EqBassDb = 2.5; EqTrebleDb = 2.0; DeHissCutoff = 9500; VitsNoiseScale = 0.60; }
+                else if (preset == "Story") { Speed = 0.92; Pitch = 0.96; EqBassDb = 4.0; EqTrebleDb = 0.5; DeHissCutoff = 8000; VitsNoiseScale = 0.55; }
+                else if (preset == "Review") { Speed = 1.18; Pitch = 1.02; EqBassDb = 1.5; EqTrebleDb = 3.0; DeHissCutoff = 10000; VitsNoiseScale = 0.65; }
+                else { Speed = 1.0; Pitch = 1.0; EqBassDb = 0.0; EqTrebleDb = 2.0; DeHissCutoff = 8500; VitsNoiseScale = 0.60; }
+            });
+
+            ClearTextCommand = new RelayCommand((o) => InputText = "");
+            PasteTextCommand = new RelayCommand((o) =>
+            {
+                if (Clipboard.ContainsText()) InputText = Clipboard.GetText();
+            });
+            OpenSelectedHistoryFileCommand = new RelayCommand((o) =>
+            {
+                if (SelectedHistoryItem != null && File.Exists(SelectedHistoryItem.FilePath))
+                    Process.Start("explorer.exe", $"/select,\"{SelectedHistoryItem.FilePath}\"");
+            }, (o) => SelectedHistoryItem != null);
 
             AdjustSpeedCommand = new RelayCommand((param) =>
             {
@@ -1116,6 +1137,10 @@ namespace VoiceCraft.App_Core.ViewModels
         public ICommand PreviewCloneSampleCommand { get; }
         public ICommand ClearCloneSampleCommand { get; }
         public ICommand ResetEqCommand { get; }
+        public ICommand ApplyAudioPresetCommand { get; }
+        public ICommand ClearTextCommand { get; }
+        public ICommand PasteTextCommand { get; }
+        public ICommand OpenSelectedHistoryFileCommand { get; }
         public ICommand AdjustSpeedCommand { get; }
         public ICommand SetSpeedPresetCommand { get; }
         public ICommand AdjustPitchCommand { get; }
