@@ -1,7 +1,7 @@
-<Window x:Class="VoiceCraft.SettingsWindow"
+﻿<Window x:Class="VoiceCraft.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="VoiceCraft - Cài đặt &amp; Cập nhật" Height="650" Width="820"
+        Title="VoiceCraft - C&#x00E0;i &#x0111;&#x1EB7;t &amp; C&#x1EAD;p nh&#x1EAD;t" Height="700" Width="880"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
 
@@ -12,8 +12,7 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <!-- LỚP KÍNH PHẢN CHIẾU MỜ KIỂU WINDOWS 7 -->
-            <Polygon Grid.Row="0" Grid.RowSpan="2" Points="0,0 450,0 240,650 0,650" IsHitTestVisible="False"
+            <Polygon Grid.Row="0" Grid.RowSpan="2" Points="0,0 450,0 240,700 0,700" IsHitTestVisible="False"
                      Visibility="{Binding AeroReflectionVisibility}">
                 <Polygon.Fill>
                     <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
@@ -24,109 +23,111 @@
                 </Polygon.Fill>
             </Polygon>
 
-            <!-- THANH TIÊU ĐỀ RIÊNG CHO CỬA SỔ CÀI ĐẶT -->
             <Border Grid.Row="0" Background="#24000000" BorderBrush="#28FFFFFF" BorderThickness="0,0,0,1"
                     CornerRadius="6,6,0,0" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
-                        <TextBlock Text="⚙️ Cài đặt hệ thống &amp; Giao diện VoiceCraft" Foreground="White" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                        <TextBlock Text="&#x2699; C&#x00E0;i &#x0111;&#x1EB7;t H&#x1EC7; th&#x1ED1;ng, Giao di&#x1EC7;n &amp; Model AI" Foreground="White" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
                         <Border Background="#20FFFFFF" CornerRadius="3" Padding="8,1" Margin="12,0,0,0" BorderBrush="#28FFFFFF" BorderThickness="1">
                             <TextBlock Text="{Binding AppVersion, StringFormat={}v{0}}" Foreground="#D8ECFF" FontSize="11.5"/>
                         </Border>
                     </StackPanel>
-                    <Button Content="✕" Width="46" HorizontalAlignment="Right" Background="Transparent" Foreground="#D0DCE8" FontSize="13" BorderThickness="0" Click="Close_Click">
-                        <Button.Style>
-                            <Style TargetType="Button">
-                                <Style.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Background" Value="#E81123"/>
-                                        <Setter Property="Foreground" Value="White"/>
-                                    </Trigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
+                    <Button Content="&#x2715;" Width="46" HorizontalAlignment="Right" Style="{StaticResource Win10CloseBtn}" Click="Close_Click"/>
                 </Grid>
             </Border>
 
-            <!-- NỘI DUNG CÀI ĐẶT (2 CỘT: GIAO DIỆN & GITHUB UPDATE) -->
             <Grid Grid.Row="1" Margin="16,14,16,14">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="1.15*"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- CỘT 1: TUỲ CHỈNH MÀU SẮC & GIAO DIỆN -->
-                <Border Grid.Column="0" Background="{Binding CardGlassBrush}" CornerRadius="4" Padding="16" BorderBrush="#30FFFFFF" BorderThickness="1" Margin="0,0,8,0">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <!-- COT 1: TUY CHINH MAU SAC (DA BO SUNG MAU DEN & XAM) -->
+                <Border Grid.Column="0" Background="{Binding CardGlassBrush}" CornerRadius="4" Padding="15" BorderBrush="#30FFFFFF" BorderThickness="1" Margin="0,0,8,0">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,4,0">
                         <StackPanel>
-                            <TextBlock Text="🎨 TUỲ CHỈNH MÀU SẮC &amp; GIAO DIỆN" Foreground="{Binding AccentBrush}" FontWeight="Bold" FontSize="12.5" Margin="0,0,0,12"/>
+                            <TextBlock Text="&#x1F3A8; TU&#x1EF2; CH&#x1EC8;NH M&#x00C0;U S&#x1EAE;C &amp; GIAO DI&#x1EC6;N" Foreground="{Binding AccentBrush}" FontWeight="Bold" FontSize="12" Margin="0,0,0,12"/>
 
-                            <TextBlock Text="1. Tông màu nền kính (Glass Tint):" Foreground="#E6F2FF" FontSize="12" Margin="0,0,0,4"/>
+                            <TextBlock Text="1. T&#x00F4;ng m&#x00E0;u n&#x1EC1;n k&#x00ED;nh (Glass Tint - C&#x00F3; &#x0110;en &amp; X&#x00E1;m):" Foreground="#E6F2FF" FontSize="12" Margin="0,0,0,4"/>
                             <ComboBox ItemsSource="{Binding AeroThemes}" SelectedItem="{Binding SelectedAeroTheme}" Margin="0,0,0,12"/>
 
-                            <TextBlock Text="2. Màu nhấn chủ đạo (Accent Color):" Foreground="#E6F2FF" FontSize="12" Margin="0,0,0,4"/>
+                            <TextBlock Text="2. M&#x00E0;u nh&#x1EA5;n ch&#x1EE7; &#x0111;&#x1EA1;o (Accent Color - C&#x00F3; &#x0110;en &amp; X&#x00E1;m):" Foreground="#E6F2FF" FontSize="12" Margin="0,0,0,4"/>
                             <ComboBox ItemsSource="{Binding AccentColorList}" SelectedItem="{Binding SelectedAccentItem}" Margin="0,0,0,12"/>
 
-                            <TextBlock Text="3. Màu sóng âm thanh (Waveform):" Foreground="#E6F2FF" FontSize="12" Margin="0,0,0,4"/>
+                            <TextBlock Text="3. M&#x00E0;u s&#x00F3;ng &#x00E2;m thanh (Waveform):" Foreground="#E6F2FF" FontSize="12" Margin="0,0,0,4"/>
                             <ComboBox ItemsSource="{Binding WaveformColorList}" SelectedItem="{Binding SelectedWaveformColorItem}" Margin="0,0,0,12"/>
 
-                            <TextBlock Text="4. Màu vạch phụ tương tác (Cursor):" Foreground="#E6F2FF" FontSize="12" Margin="0,0,0,4"/>
+                            <TextBlock Text="4. M&#x00E0;u v&#x1EA1;ch ph&#x1EE5; t&#x01B0;&#x01A1;ng t&#x00E1;c (Cursor):" Foreground="#E6F2FF" FontSize="12" Margin="0,0,0,4"/>
                             <ComboBox ItemsSource="{Binding SecondaryLineColorList}" SelectedItem="{Binding SelectedSecondaryLineColorItem}" Margin="0,0,0,12"/>
 
                             <Grid Margin="0,0,0,3">
-                                <TextBlock Text="5. Độ trong suốt cửa sổ chính:" Foreground="#E6F2FF" FontSize="12"/>
+                                <TextBlock Text="5. &#x0110;&#x1ED9; trong su&#x1ED1;t c&#x1EED;a s&#x1ED5; ch&#x00ED;nh:" Foreground="#E6F2FF" FontSize="12"/>
                                 <TextBlock Text="{Binding GlassOpacityPercent}" Foreground="{Binding AccentBrush}" FontWeight="Bold" FontSize="12" HorizontalAlignment="Right"/>
                             </Grid>
                             <Slider Minimum="0.25" Maximum="1.0" Value="{Binding GlassOpacity}" TickFrequency="0.05" Margin="0,0,0,10"/>
 
                             <Grid Margin="0,0,0,3">
-                                <TextBlock Text="6. Độ trong suốt khung panel:" Foreground="#E6F2FF" FontSize="12"/>
+                                <TextBlock Text="6. &#x0110;&#x1ED9; trong su&#x1ED1;t khung panel:" Foreground="#E6F2FF" FontSize="12"/>
                                 <TextBlock Text="{Binding CardOpacityPercent}" Foreground="{Binding AccentBrush}" FontWeight="Bold" FontSize="12" HorizontalAlignment="Right"/>
                             </Grid>
-                            <Slider Minimum="0.15" Maximum="0.95" Value="{Binding CardOpacity}" TickFrequency="0.05" Margin="0,0,0,10"/>
+                            <Slider Minimum="0.15" Maximum="0.95" Value="{Binding CardOpacity}" TickFrequency="0.05" Margin="0,0,0,12"/>
 
-                            <CheckBox IsChecked="{Binding ShowAeroReflection}" Foreground="#E6F2FF" FontSize="12" Margin="0,2,0,4"
-                                      Content="Bật lớp phản chiếu gương chéo Win7"/>
+                            <CheckBox IsChecked="{Binding ShowAeroReflection}" Margin="0,2,0,4"
+                                      Content="B&#x1EAD;t l&#x1EDB;p ph&#x1EA3;n chi&#x1EBF;u g&#x01B0;&#x01A1;ng ch&#x00E9;o Win7"/>
                         </StackPanel>
                     </ScrollViewer>
                 </Border>
 
-                <!-- CỘT 2: QUẢN LÝ ENGINE & GITHUB AUTO-UPDATE -->
-                <Border Grid.Column="1" Background="{Binding CardGlassBrush}" CornerRadius="4" Padding="16" BorderBrush="#30FFFFFF" BorderThickness="1" Margin="8,0,0,0">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <!-- COT 2: QUAN LY MODEL TU DONG + DON OUTPUT + GITHUB UPDATE -->
+                <Border Grid.Column="1" Background="{Binding CardGlassBrush}" CornerRadius="4" Padding="15" BorderBrush="#30FFFFFF" BorderThickness="1" Margin="8,0,0,0">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,4,0">
                         <StackPanel>
-                            <TextBlock Text="⚙️ QUẢN LÝ ENGINE &amp; CẬP NHẬT" Foreground="{Binding AccentBrush}" FontWeight="Bold" FontSize="12.5" Margin="0,0,0,12"/>
+                            <TextBlock Text="&#x1F9E0; QU&#x1EA2;N L&#x00DD; MODEL AI, ENGINE &amp; D&#x1ECC;N D&#x1EB8;P" Foreground="{Binding AccentBrush}" FontWeight="Bold" FontSize="12" Margin="0,0,0,10"/>
 
-                            <UniformGrid Columns="2" Rows="2" Height="78" Margin="0,0,0,12">
-                                <Button Content="Khởi động lại Engine" Command="{Binding RestartEngineCommand}" Style="{StaticResource FlatGlassBtn}" Margin="0,0,4,6"/>
-                                <Button Content="Mở thư mục Models" Command="{Binding OpenFolderCommand}" CommandParameter="Models" Style="{StaticResource FlatGlassBtn}" Margin="4,0,0,6"/>
-                                <Button Content="Mở thư mục Output" Command="{Binding OpenFolderCommand}" CommandParameter="Output" Style="{StaticResource FlatGlassBtn}" Margin="0,0,4,0"/>
-                                <Button Content="Mở thư mục Updates" Command="{Binding OpenFolderCommand}" CommandParameter="Updates" Style="{StaticResource FlatGlassBtn}" Margin="4,0,0,0"/>
+                            <UniformGrid Columns="2" Rows="2" Height="72" Margin="0,0,0,10">
+                                <Button Content="&#x21BB; Kh&#x1EDFi &#x0111;&#x1ED9;ng l&#x1EA1;i Engine" Command="{Binding RestartEngineCommand}" Style="{StaticResource FlatGlassBtn}" Margin="0,0,4,6"/>
+                                <Button Content="&#x1F5D1; D&#x1ECD;n d&#x1EB9;p Output (.wav)" Command="{Binding ClearCacheCommand}" Style="{StaticResource FlatGlassBtn}" Margin="4,0,0,6"/>
+                                <Button Content="&#x1F4C2; M&#x1EDF; th&#x01B0; m&#x1EE5;c Models" Command="{Binding OpenFolderCommand}" CommandParameter="Models" Style="{StaticResource FlatGlassBtn}" Margin="0,0,4,0"/>
+                                <Button Content="&#x1F4C2; M&#x1EDF; th&#x01B0; m&#x1EE5;c Output" Command="{Binding OpenFolderCommand}" CommandParameter="Output" Style="{StaticResource FlatGlassBtn}" Margin="4,0,0,0"/>
                             </UniformGrid>
 
-                            <Separator Background="#28FFFFFF" Margin="0,2,0,12"/>
+                            <!-- NUT SUA VA TAI MODEL TU DONG KEM CUA SO TRANG THAI TRUC TIEP -->
+                            <Border Background="#28081422" BorderBrush="#4400E5FF" BorderThickness="1" CornerRadius="4" Padding="10,8" Margin="0,0,0,12">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,6">
+                                        <TextBlock Text="&#x1F6E0; S&#x1EEC;A L&#x1ED6;I &amp; T&#x1EA2;I MODEL AI T&#x1EF0; &#x0110;&#x1ED8;NG" Foreground="#00E5FF" FontWeight="Bold" FontSize="11.5" VerticalAlignment="Center"/>
+                                        <Button Content="&#x26A1; S&#x1EED;a &amp; T&#x1EA3;i Model ngay" Command="{Binding RepairModelsCommand}" Style="{StaticResource FlatPrimaryBtn}" Padding="10,3" FontSize="11.5" HorizontalAlignment="Right"/>
+                                    </Grid>
+                                    <TextBlock Text="C&#x1EED;a s&#x1ED5; tr&#x1EA1;ng th&#x00E1;i t&#x1EA3;i &amp; ki&#x1EC3;m tra Model (Live Status):" Foreground="#B0C8E0" FontSize="11" Margin="0,0,0,4"/>
+                                    <Border Background="#55040810" CornerRadius="3" Height="105" Padding="6" BorderBrush="#28FFFFFF" BorderThickness="1">
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                            <TextBlock Text="{Binding ModelSetupLogText}" Foreground="#00E676" FontSize="11" TextWrapping="Wrap" FontFamily="Consolas"/>
+                                        </ScrollViewer>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
 
-                            <!-- KHU VỰC GITHUB AUTO-UPDATE -->
-                            <TextBlock Text="🚀 CẬP NHẬT PHẦN MỀM (GITHUB)" Foreground="{Binding AccentBrush}" FontWeight="Bold" FontSize="12" Margin="0,0,0,6"/>
-                            <TextBlock Text="Đường dẫn GitHub Repo (Owner/Repo):" Foreground="#D0E8FF" FontSize="11.5" Margin="0,0,0,3"/>
+                            <Separator Background="#28FFFFFF" Margin="0,0,0,10"/>
+
+                            <!-- GITHUB AUTO-UPDATE -->
+                            <TextBlock Text="&#x1F680; C&#x1EA2;P NH&#x1EA2;T PH&#x1EA6;N M&#x1EC0;M (GITHUB RELEASES)" Foreground="{Binding AccentBrush}" FontWeight="Bold" FontSize="12" Margin="0,0,0,6"/>
+                            <TextBlock Text="&#x0110;&#x01B0;&#x1EDD;ng d&#x1EAB;n GitHub Repo (Owner/Repo):" Foreground="#D0E8FF" FontSize="11.5" Margin="0,0,0,3"/>
                             <TextBox Text="{Binding GitHubRepo, UpdateSourceTrigger=PropertyChanged}" Height="28" Background="#330A121E" Foreground="White" BorderBrush="#30FFFFFF" BorderThickness="1" Padding="6,4" FontSize="12" Margin="0,0,0,8"/>
 
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                                <Button Content="Kiểm tra cập nhật" Command="{Binding CheckUpdateCommand}" Style="{StaticResource FlatPrimaryBtn}" Width="135" Height="30" Margin="0,0,8,0"/>
-                                <Button Content="Tải bản mới" Command="{Binding DownloadUpdateCommand}" Style="{StaticResource FlatGlassBtn}" Width="110" Height="30"/>
+                                <Button Content="Ki&#x1EC3;m tra c&#x1EAD;p nh&#x1EAD;t" Command="{Binding CheckUpdateCommand}" Style="{StaticResource FlatPrimaryBtn}" Width="140" Height="30" Margin="0,0,8,0"/>
+                                <Button Content="T&#x1EA3;i b&#x1EA3;n m&#x1EDB;i" Command="{Binding DownloadUpdateCommand}" Style="{StaticResource FlatGlassBtn}" Width="115" Height="30" Margin="0,0,8,0"/>
+                                <Button Content="&#x1F4C2; Th&#x01B0; m&#x1EE5;c Updates" Command="{Binding OpenFolderCommand}" CommandParameter="Updates" Style="{StaticResource FlatGlassBtn}" Width="125" Height="30"/>
                             </StackPanel>
 
                             <TextBlock Text="{Binding UpdateStatusText}" Foreground="#E0F2FE" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
 
-                            <!-- Thanh tiến trình tải Update -->
                             <Grid Visibility="{Binding UpdateProgressVisibility}" Margin="0,0,0,8">
                                 <ProgressBar Value="{Binding UpdateProgress}" Maximum="100" Height="14" Background="#33000000" Foreground="{Binding AccentBrush}" BorderBrush="#30FFFFFF" BorderThickness="1"/>
                                 <TextBlock Text="{Binding UpdateProgressPercent}" Foreground="White" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Grid>
 
-                            <TextBlock Text="Nội dung bản phát hành (Changelog):" Foreground="#B0C8E0" FontSize="11" Margin="0,0,0,3"/>
-                            <Border Background="#40060C14" CornerRadius="3" Height="70" Padding="6" BorderBrush="#20FFFFFF" BorderThickness="1">
+                            <Border Background="#40060C14" CornerRadius="3" Height="62" Padding="6" BorderBrush="#20FFFFFF" BorderThickness="1">
                                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                                     <TextBlock Text="{Binding UpdateChangelog}" Foreground="#D8ECFF" FontSize="11" TextWrapping="Wrap" FontFamily="Consolas"/>
                                 </ScrollViewer>

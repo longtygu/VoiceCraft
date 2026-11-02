@@ -10,7 +10,6 @@
         <vm:MainViewModel/>
     </Window.DataContext>
 
-    <!-- KHUNG CHÍNH: PHẲNG SẮC NÉT KIỂU WINDOWS 10 + NỀN KÍNH TRONG SUỐT WINDOWS 7 -->
     <Border Background="{Binding WindowGlassBrush, FallbackValue=#D912161F}" CornerRadius="6" BorderThickness="1" BorderBrush="{Binding WindowBorderBrush, FallbackValue=#550078D4}">
         <Grid>
             <Grid.RowDefinitions>
@@ -19,7 +18,6 @@
                 <RowDefinition Height="142"/>
             </Grid.RowDefinitions>
 
-            <!-- LỚP KÍNH PHẢN CHIẾU MỜ KIỂU WINDOWS 7 -->
             <Polygon Grid.Row="0" Grid.RowSpan="3" Points="0,0 580,0 320,780 0,780" IsHitTestVisible="False"
                      Visibility="{Binding AeroReflectionVisibility, FallbackValue=Visible}">
                 <Polygon.Fill>
@@ -31,166 +29,179 @@
                 </Polygon.Fill>
             </Polygon>
 
-            <!-- ==================== THANH TIÊU ĐỀ PHẲNG WINDOWS 10 ==================== -->
+            <!-- THANH TIEU DE -->
             <Border Grid.Row="0" Background="#24000000" BorderBrush="#28FFFFFF" BorderThickness="0,0,0,1"
                     CornerRadius="6,6,0,0" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
                         <Ellipse Width="10" Height="10" Fill="{Binding ConnectionColor, FallbackValue=#00E676}" Margin="0,0,10,0"/>
                         <TextBlock Text="VoiceCraft" Foreground="White" FontWeight="SemiBold" FontSize="14.5" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding AppVersion, StringFormat={}v{0}, FallbackValue=v0.0.1}" Foreground="#90B4D4" FontSize="11.5" FontWeight="SemiBold" VerticalAlignment="Center" Margin="6,2,0,0"/>
+                        <TextBlock Text="{Binding AppVersion, StringFormat={}v{0}, FallbackValue=v0.0.2}" Foreground="#90B4D4" FontSize="11.5" FontWeight="SemiBold" VerticalAlignment="Center" Margin="6,2,0,0"/>
                         <Border Background="#20FFFFFF" CornerRadius="3" Padding="8,2" Margin="14,0,0,0" BorderBrush="#28FFFFFF" BorderThickness="1">
-                            <TextBlock Text="{Binding ConnectionStatus, FallbackValue=Sẵn sàng}" Foreground="#D8ECFF" FontSize="11.5"/>
+                            <TextBlock Text="{Binding ConnectionStatus}" Foreground="#D8ECFF" FontSize="11.5"/>
                         </Border>
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Stretch">
-                        <Button Content="⚙" Width="42" FontSize="14" ToolTip="Cài đặt &amp; Cập nhật"
+                        <Button Content="&#x2699;" Width="42" FontSize="14" ToolTip="C&#x00E0;i &#x0111;&#x1EB7;t &amp; C&#x1EAD;p nh&#x1EAD;t"
                                 Style="{StaticResource Win10TitleBtn}" Click="OpenSettings_Click"
                                 IsEnabled="{Binding IsControlsEnabled, FallbackValue=True}"/>
                         <Rectangle Width="1" Height="18" Fill="#28FFFFFF" VerticalAlignment="Center" Margin="2,0"/>
-                        <Button Content="─" Width="44" Style="{StaticResource Win10TitleBtn}" Click="Minimize_Click"/>
-                        <Button Content="☐" Width="44" Style="{StaticResource Win10TitleBtn}" Click="Maximize_Click"/>
-                        <Button Content="✕" Width="46" Style="{StaticResource Win10CloseBtn}" Click="Close_Click"/>
+                        <Button Content="&#x2500;" Width="44" Style="{StaticResource Win10TitleBtn}" Click="Minimize_Click"/>
+                        <Button Content="&#x2610;" Width="44" Style="{StaticResource Win10TitleBtn}" Click="Maximize_Click"/>
+                        <Button Content="&#x2715;" Width="46" Style="{StaticResource Win10CloseBtn}" Click="Close_Click"/>
                     </StackPanel>
                 </Grid>
             </Border>
 
-            <!-- ==================== GIAO DIỆN PHÒNG THU CHÍNH ==================== -->
+            <!-- GIAO DIEN CHINH -->
             <Grid Grid.Row="1" Margin="12,10,12,10">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="410"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- PANEL TRÁI: CHỌN MODEL + NHÁI GIỌNG AI + BỘ LỌC EQ THEO MODEL -->
+                <!-- PANEL TRAI -->
                 <Border Grid.Column="0" Background="{Binding CardGlassBrush, FallbackValue=#73090E17}" CornerRadius="4" Margin="0,0,10,0" Padding="14,12"
                         BorderBrush="#30FFFFFF" BorderThickness="1" IsEnabled="{Binding IsControlsEnabled, FallbackValue=True}">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,4,0">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
                         <StackPanel>
-                            <!-- PHẦN 1: HƯỚNG 1 - CHỌN MODEL (VIENEU / VIETTTS / MULTILINGUAL / KOKORO / PIPER) -->
-                            <TextBlock Text="1. CHỌN MODEL GIỌNG ĐỌC AI" Foreground="{Binding AccentBrush, FallbackValue=#0078D4}" FontWeight="Bold" FontSize="11.5" Margin="0,0,0,8"/>
-
-                            <Grid Margin="0,0,0,4">
-                                <TextBlock Text="Model đang sử dụng:" Foreground="#00E5FF" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
-                                <Button Content="🔄 Quét lại" Command="{Binding RefreshModelsCommand}" Style="{StaticResource MiniChipBtn}" HorizontalAlignment="Right"/>
-                            </Grid>
-                            <ComboBox ItemsSource="{Binding AvailableModels}" SelectedItem="{Binding SelectedModelFile}" Margin="0,0,0,4"/>
-                            <Border Background="#2200C8FF" BorderBrush="#4400C8FF" BorderThickness="1" CornerRadius="3" Padding="7,3" Margin="0,0,0,8">
-                                <TextBlock Text="{Binding SelectedModelInfoText}" Foreground="#B8E8FF" FontSize="11" TextWrapping="Wrap"/>
-                            </Border>
-
-                            <Grid Margin="0,0,0,6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Margin="0,0,4,0">
-                                    <TextBlock Text="Vùng miền / Chế độ:" Foreground="#E6F2FF" FontSize="11.5" Margin="0,0,0,3"/>
-                                    <ComboBox ItemsSource="{Binding Voices}" SelectedItem="{Binding SelectedVoice}" Height="30" FontSize="12"/>
-                                </StackPanel>
-                                <StackPanel Grid.Column="1" Margin="4,0,0,0">
-                                    <TextBlock Text="Giới tính giọng:" Foreground="#E6F2FF" FontSize="11.5" Margin="0,0,0,3"/>
-                                    <ComboBox ItemsSource="{Binding Genders}" SelectedItem="{Binding SelectedGender}" Height="30" FontSize="12"/>
-                                </StackPanel>
-                            </Grid>
-
-                            <!-- Speaker ID -->
-                            <Grid Margin="0,2,0,3">
-                                <TextBlock Text="Mã người nói (Speaker ID: -1 -> 903):" Foreground="#E6F2FF" FontSize="11.5" VerticalAlignment="Center"/>
-                                <TextBlock Text="{Binding SpeakerIdDisplay}" Foreground="#FFD600" FontWeight="Bold" FontFamily="Consolas" FontSize="12" HorizontalAlignment="Right"/>
-                            </Grid>
-                            <Grid Margin="0,0,0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="32"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="32"/>
-                                </Grid.ColumnDefinitions>
-                                <Button Grid.Column="0" Content="-1" Command="{Binding AdjustSpeakerIdCommand}" CommandParameter="-1" Style="{StaticResource MiniChipBtn}" Height="22"/>
-                                <Slider Grid.Column="1" Minimum="-1" Maximum="903" Value="{Binding SpeakerId}" TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="6,0"/>
-                                <Button Grid.Column="2" Content="+1" Command="{Binding AdjustSpeakerIdCommand}" CommandParameter="1" Style="{StaticResource MiniChipBtn}" Height="22"/>
-                            </Grid>
-
-                            <CheckBox IsChecked="{Binding BilingualAuto}" Foreground="#D8ECFF" Margin="0,0,0,5" FontSize="11.5"
-                                      Content="Tự động xử lý từ Tiếng Anh trong câu"/>
-                            <CheckBox IsChecked="{Binding SingleVoiceMode}" Foreground="#00E676" Margin="0,0,0,8" FontSize="11.5"
-                                      Content="Giữ 1 giọng xuyên suốt (Phiên âm CMU 135k)"/>
-
-                            <Separator Background="#28FFFFFF" Margin="0,2,0,8"/>
-
-                            <!-- PHẦN 2: HƯỚNG 2 - NHÁI GIỌNG AI (ZERO-SHOT VOICE CLONING) -->
-                            <Border Background="#280A1828" BorderBrush="#4400E5FF" BorderThickness="1" CornerRadius="4" Padding="10,8" Margin="0,0,0,10">
+                            <!-- TAB 1: CHON MODEL GIONG DOC AI (LUON MO RONG) -->
+                            <Border Background="#220A1422" BorderBrush="#35FFFFFF" BorderThickness="1" CornerRadius="4" Padding="10,9" Margin="0,0,0,10">
                                 <StackPanel>
-                                    <TextBlock Text="🧬 2. NHÁI GIỌNG AI (VOICE CLONING 5-15s)" Foreground="#00E5FF" FontWeight="Bold" FontSize="11.5" Margin="0,0,0,6"/>
-
-                                    <CheckBox IsChecked="{Binding IsVoiceCloneEnabled}" Foreground="#FFF59D" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,6"
-                                              Content="Bật Nhái giọng theo file âm thanh mẫu"/>
-
-                                    <TextBlock Text="{Binding CloneReferenceFileName}" Foreground="#B8E8FF" FontSize="11" FontFamily="Consolas" TextTrimming="CharacterEllipsis" Margin="0,0,0,6"/>
-
                                     <Grid Margin="0,0,0,6">
+                                        <TextBlock Text="1. CH&#x1ECC;N MODEL GI&#x1ECC;NG &#x0110;&#x1ECC;C AI" Foreground="{Binding AccentBrush, FallbackValue=#0078D4}" FontWeight="Bold" FontSize="11.5" VerticalAlignment="Center"/>
+                                        <Button Content="&#x21BB; Qu&#x00E9;t l&#x1EA1;i" Command="{Binding RefreshModelsCommand}" Style="{StaticResource MiniChipBtn}" HorizontalAlignment="Right"/>
+                                    </Grid>
+
+                                    <ComboBox ItemsSource="{Binding AvailableModels}" SelectedItem="{Binding SelectedModelFile}" Margin="0,0,0,6"/>
+                                    <Border Background="#2200C8FF" BorderBrush="#4400C8FF" BorderThickness="1" CornerRadius="3" Padding="7,4" Margin="0,0,0,8">
+                                        <TextBlock Text="{Binding SelectedModelInfoText}" Foreground="#B8E8FF" FontSize="11" TextWrapping="Wrap"/>
+                                    </Border>
+
+                                    <!-- CHI HIEN THI KHI CHON "TU DONG THEO VUNG MIEN (AUTO)" -->
+                                    <Grid Margin="0,0,0,8" Visibility="{Binding AutoModelOptionsVisibility, FallbackValue=Visible}">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <Button Grid.Column="0" Content="📂 Chọn mẫu (.wav/.mp3)" Command="{Binding SelectCloneSampleCommand}" Style="{StaticResource MiniChipBtn}" Height="26" Margin="0,0,4,0"/>
-                                        <Button Grid.Column="1" Content="▶ Nghe mẫu" Command="{Binding PreviewCloneSampleCommand}" Style="{StaticResource MiniChipBtn}" Height="26" Padding="8,2" Margin="0,0,4,0"/>
-                                        <Button Grid.Column="2" Content="✕" Command="{Binding ClearCloneSampleCommand}" Style="{StaticResource MiniChipBtn}" Height="26" Width="26"/>
+                                        <StackPanel Grid.Column="0" Margin="0,0,4,0">
+                                            <TextBlock Text="V&#x00F9;ng mi&#x1EC1;n / Ch&#x1EBF; &#x0111;&#x1ED9;:" Foreground="#E6F2FF" FontSize="11.5" Margin="0,0,0,3"/>
+                                            <ComboBox ItemsSource="{Binding Voices}" SelectedItem="{Binding SelectedVoice}" Height="30" FontSize="12"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Margin="4,0,0,0">
+                                            <TextBlock Text="Gi&#x1EDB;i t&#x00ED;nh gi&#x1ECD;ng:" Foreground="#E6F2FF" FontSize="11.5" Margin="0,0,0,3"/>
+                                            <ComboBox ItemsSource="{Binding Genders}" SelectedItem="{Binding SelectedGender}" Height="30" FontSize="12"/>
+                                        </StackPanel>
                                     </Grid>
 
-                                    <Grid Margin="0,0,0,2">
-                                        <TextBlock Text="Độ giống giọng mẫu (Clone Strength):" Foreground="#D8ECFF" FontSize="11.5"/>
-                                        <TextBlock Text="{Binding CloneStrengthPercent}" Foreground="#00E5FF" FontWeight="Bold" FontFamily="Consolas" FontSize="11.5" HorizontalAlignment="Right"/>
-                                    </Grid>
-                                    <Slider Minimum="0.0" Maximum="1.0" Value="{Binding CloneStrength}" TickFrequency="0.05" IsSnapToTickEnabled="True"/>
+                                    <!-- CHI HIEN THI KHI CHON MODEL DA NGUOI NOI (VIVOS / LIBRITTS) -->
+                                    <StackPanel Visibility="{Binding MultiSpeakerVisibility, FallbackValue=Collapsed}" Margin="0,0,0,8">
+                                        <Grid Margin="0,0,0,3">
+                                            <TextBlock Text="M&#x00E3; ng&#x01B0;&#x1EDB;i n&#x00F3;i (Speaker ID):" Foreground="#E6F2FF" FontSize="11.5" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding SpeakerIdDisplay}" Foreground="#FFD600" FontWeight="Bold" FontFamily="Consolas" FontSize="12" HorizontalAlignment="Right"/>
+                                        </Grid>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="32"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="32"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Button Grid.Column="0" Content="-1" Command="{Binding AdjustSpeakerIdCommand}" CommandParameter="-1" Style="{StaticResource MiniChipBtn}" Height="22"/>
+                                            <Slider Grid.Column="1" Minimum="-1" Maximum="903" Value="{Binding SpeakerId}" TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="6,0"/>
+                                            <Button Grid.Column="2" Content="+1" Command="{Binding AdjustSpeakerIdCommand}" CommandParameter="1" Style="{StaticResource MiniChipBtn}" Height="22"/>
+                                        </Grid>
+                                    </StackPanel>
+
+                                    <CheckBox IsChecked="{Binding BilingualAuto}" Margin="0,2,0,6"
+                                              Content="T&#x1EF1; &#x0111;&#x1ED9;ng x&#x1EED; l&#x00FD; t&#x1EEB; Ti&#x1EBF;ng Anh trong c&#x00E2;u"/>
+                                    <CheckBox IsChecked="{Binding SingleVoiceMode}" Foreground="#00E676" Margin="0,0,0,2"
+                                              Content="Gi&#x1EEF; 1 gi&#x1ECD;ng xuy&#x00EA;n su&#x1ED1;t (Phi&#x00EA;n &#x00E2;m CMU 135k)"/>
                                 </StackPanel>
                             </Border>
 
-                            <!-- PHẦN 3: HƯỚNG 3 - BỘ LỌC ÂM THANH & STUDIO EQ RIÊNG CHO TỪNG MODEL -->
+                            <!-- TAB 2: NHAI GIONG AI (MAC DINH THU GON, MO RONG KHI GAT CONG TAC BAT) -->
+                            <Border Background="#280A1828" BorderBrush="#4400E5FF" BorderThickness="1" CornerRadius="4" Padding="10,8" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <CheckBox Style="{StaticResource HeaderToggleSwitch}"
+                                              IsChecked="{Binding IsVoiceCloneEnabled}"
+                                              Content="&#x1F9EC; 2. NH&#x00C1;I GI&#x1ECC;NG AI (VOICE CLONING)"/>
+
+                                    <StackPanel Visibility="{Binding VoiceClonePanelVisibility, FallbackValue=Collapsed}" Margin="0,8,0,0">
+                                        <TextBlock Text="{Binding CloneReferenceFileName}" Foreground="#FFF59D" FontSize="11.5" FontWeight="SemiBold" FontFamily="Consolas" TextTrimming="CharacterEllipsis" Margin="0,0,0,6"/>
+
+                                        <Grid Margin="0,0,0,8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Button Grid.Column="0" Content="&#x1F4C2; Ch&#x1ECD;n m&#x1EAB;u (.wav/.mp3)" Command="{Binding SelectCloneSampleCommand}" Style="{StaticResource MiniChipBtn}" Height="26" Margin="0,0,4,0"/>
+                                            <Button Grid.Column="1" Content="&#x25B6; Nghe m&#x1EAB;u" Command="{Binding PreviewCloneSampleCommand}" Style="{StaticResource MiniChipBtn}" Height="26" Padding="8,2" Margin="0,0,4,0"/>
+                                            <Button Grid.Column="2" Content="&#x2715;" Command="{Binding ClearCloneSampleCommand}" Style="{StaticResource MiniChipBtn}" Height="26" Width="26"/>
+                                        </Grid>
+
+                                        <Grid Margin="0,0,0,2">
+                                            <TextBlock Text="&#x0110;&#x1ED9; gi&#x1ED1;ng gi&#x1ECD;ng m&#x1EAB;u (Clone Strength):" Foreground="#D8ECFF" FontSize="11.5"/>
+                                            <TextBlock Text="{Binding CloneStrengthPercent}" Foreground="#00E5FF" FontWeight="Bold" FontFamily="Consolas" FontSize="11.5" HorizontalAlignment="Right"/>
+                                        </Grid>
+                                        <Slider Minimum="0.0" Maximum="1.0" Value="{Binding CloneStrength}" TickFrequency="0.05" IsSnapToTickEnabled="True"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- TAB 3: BO LOC EQ THEO TUNG MODEL (MAC DINH THU GON, MO RONG KHI GAT CONG TAC BAT) -->
                             <Border Background="#280D1420" BorderBrush="#38FFFFFF" BorderThickness="1" CornerRadius="4" Padding="10,8" Margin="0,0,0,10">
                                 <StackPanel>
-                                    <Grid Margin="0,0,0,6">
-                                        <TextBlock Text="🎛️ 3. BỘ LỌC EQ THEO TỪNG MODEL" Foreground="{Binding AccentBrush, FallbackValue=#0078D4}" FontWeight="Bold" FontSize="11.5" VerticalAlignment="Center"/>
-                                        <Button Content="↺ Mặc định EQ" Command="{Binding ResetEqCommand}" Style="{StaticResource MiniChipBtn}" HorizontalAlignment="Right"/>
-                                    </Grid>
+                                    <CheckBox Style="{StaticResource HeaderToggleSwitch}"
+                                              IsChecked="{Binding IsCustomEqEnabled}"
+                                              Foreground="{Binding AccentBrush, FallbackValue=#0078D4}"
+                                              Content="&#x1F39B; 3. B&#x1ED8; L&#x1ECC;C EQ THEO T&#x1EEB;NG MODEL"/>
 
-                                    <CheckBox IsChecked="{Binding BypassDsp}" Foreground="#FFD600" FontWeight="SemiBold" Margin="0,0,0,6" FontSize="11.5"
-                                              Content="Xuất âm thanh thô của Model (Tắt toàn bộ DSP/EQ)"/>
+                                    <StackPanel Visibility="{Binding CustomEqPanelVisibility, FallbackValue=Collapsed}" Margin="0,8,0,0">
+                                        <Grid Margin="0,0,0,6">
+                                            <CheckBox IsChecked="{Binding BypassDsp}" Foreground="#FFD600" FontWeight="SemiBold" FontSize="11.5"
+                                                      Content="Xu&#x1EA5;t &#x00E2;m thanh th&#x00F4; (T&#x1EAF;t DSP/EQ)"/>
+                                            <Button Content="&#x21BA; M&#x1EB7;c &#x0111;&#x1ECB;nh" Command="{Binding ResetEqCommand}" Style="{StaticResource MiniChipBtn}" HorizontalAlignment="Right"/>
+                                        </Grid>
 
-                                    <!-- Độ ấm trầm (Bass / Warmth) -->
-                                    <Grid Margin="0,0,0,2">
-                                        <TextBlock Text="Độ ấm trầm (Bass 185Hz):" Foreground="#E6F2FF" FontSize="11.5"/>
-                                        <TextBlock Text="{Binding EqBassDisplay}" Foreground="#00E676" FontWeight="Bold" FontFamily="Consolas" FontSize="11.5" HorizontalAlignment="Right"/>
-                                    </Grid>
-                                    <Slider Minimum="-12.0" Maximum="12.0" Value="{Binding EqBassDb}" TickFrequency="0.5" IsSnapToTickEnabled="True" Margin="0,0,0,6"/>
+                                        <UniformGrid Rows="1" Columns="4" Margin="0,0,0,8">
+                                            <Button Content="Ph&#x00E1;t thanh" Command="{Binding ApplyAudioPresetCommand}" CommandParameter="Broadcast" Style="{StaticResource MiniChipBtn}" Height="24"/>
+                                            <Button Content="K&#x1EC3; chuy&#x1EC7;n" Command="{Binding ApplyAudioPresetCommand}" CommandParameter="Story" Style="{StaticResource MiniChipBtn}" Height="24"/>
+                                            <Button Content="Review" Command="{Binding ApplyAudioPresetCommand}" CommandParameter="Review" Style="{StaticResource MiniChipBtn}" Height="24"/>
+                                            <Button Content="Trong tr&#x1EBB;o" Command="{Binding ApplyAudioPresetCommand}" CommandParameter="Clean" Style="{StaticResource MiniChipBtn}" Height="24"/>
+                                        </UniformGrid>
 
-                                    <!-- Độ sáng rõ chữ (Treble / Presence) -->
-                                    <Grid Margin="0,0,0,2">
-                                        <TextBlock Text="Độ sáng &amp; rõ chữ (Treble 3.4kHz):" Foreground="#E6F2FF" FontSize="11.5"/>
-                                        <TextBlock Text="{Binding EqTrebleDisplay}" Foreground="#00E5FF" FontWeight="Bold" FontFamily="Consolas" FontSize="11.5" HorizontalAlignment="Right"/>
-                                    </Grid>
-                                    <Slider Minimum="-12.0" Maximum="12.0" Value="{Binding EqTrebleDb}" TickFrequency="0.5" IsSnapToTickEnabled="True" Margin="0,0,0,6"/>
+                                        <Grid Margin="0,0,0,2">
+                                            <TextBlock Text="&#x0110;&#x1ED9; &#x1EA5;m tr&#x1EA7;m (Bass 185Hz):" Foreground="#E6F2FF" FontSize="11.5"/>
+                                            <TextBlock Text="{Binding EqBassDisplay}" Foreground="#00E676" FontWeight="Bold" FontFamily="Consolas" FontSize="11.5" HorizontalAlignment="Right"/>
+                                        </Grid>
+                                        <Slider Minimum="-12.0" Maximum="12.0" Value="{Binding EqBassDb}" TickFrequency="0.5" IsSnapToTickEnabled="True" Margin="0,0,0,6"/>
 
-                                    <!-- Lọc khử sôi tần cao (De-Hiss Lowpass) -->
-                                    <Grid Margin="0,0,0,2">
-                                        <TextBlock Text="Lọc khử sôi nền (De-Hiss Cutoff):" Foreground="#E6F2FF" FontSize="11.5"/>
-                                        <TextBlock Text="{Binding DeHissDisplay}" Foreground="#FFD600" FontWeight="Bold" FontFamily="Consolas" FontSize="11.5" HorizontalAlignment="Right"/>
-                                    </Grid>
-                                    <Slider Minimum="4500" Maximum="11500" Value="{Binding DeHissCutoff}" TickFrequency="250" IsSnapToTickEnabled="True" Margin="0,0,0,6"/>
+                                        <Grid Margin="0,0,0,2">
+                                            <TextBlock Text="&#x0110;&#x1ED9; s&#x00E1;ng &amp; r&#x00F5; ch&#x1EEF; (Treble 3.4kHz):" Foreground="#E6F2FF" FontSize="11.5"/>
+                                            <TextBlock Text="{Binding EqTrebleDisplay}" Foreground="#00E5FF" FontWeight="Bold" FontFamily="Consolas" FontSize="11.5" HorizontalAlignment="Right"/>
+                                        </Grid>
+                                        <Slider Minimum="-12.0" Maximum="12.0" Value="{Binding EqTrebleDb}" TickFrequency="0.5" IsSnapToTickEnabled="True" Margin="0,0,0,6"/>
 
-                                    <!-- Hệ số mượt nguyên âm VITS -->
-                                    <Grid Margin="0,0,0,2">
-                                        <TextBlock Text="Độ mượt nguyên âm VITS (Noise Scale):" Foreground="#E6F2FF" FontSize="11.5"/>
-                                        <TextBlock Text="{Binding VitsNoiseScale, StringFormat={}{0:0.00}}" Foreground="White" FontWeight="Bold" FontFamily="Consolas" FontSize="11.5" HorizontalAlignment="Right"/>
-                                    </Grid>
-                                    <Slider Minimum="0.20" Maximum="0.90" Value="{Binding VitsNoiseScale}" TickFrequency="0.05" IsSnapToTickEnabled="True"/>
+                                        <Grid Margin="0,0,0,2">
+                                            <TextBlock Text="L&#x1ECD;c kh&#x1EED; s&#x00F4;i n&#x1EC1;n (De-Hiss Cutoff):" Foreground="#E6F2FF" FontSize="11.5"/>
+                                            <TextBlock Text="{Binding DeHissDisplay}" Foreground="#FFD600" FontWeight="Bold" FontFamily="Consolas" FontSize="11.5" HorizontalAlignment="Right"/>
+                                        </Grid>
+                                        <Slider Minimum="4500" Maximum="11500" Value="{Binding DeHissCutoff}" TickFrequency="250" IsSnapToTickEnabled="True" Margin="0,0,0,6"/>
+
+                                        <Grid Margin="0,0,0,2">
+                                            <TextBlock Text="&#x0110;&#x1ED9; m&#x01B0;&#x1EE3;t nguy&#x00EA;n &#x00E2;m VITS (Noise Scale):" Foreground="#E6F2FF" FontSize="11.5"/>
+                                            <TextBlock Text="{Binding VitsNoiseScale, StringFormat={}{0:0.00}}" Foreground="White" FontWeight="Bold" FontFamily="Consolas" FontSize="11.5" HorizontalAlignment="Right"/>
+                                        </Grid>
+                                        <Slider Minimum="0.20" Maximum="0.90" Value="{Binding VitsNoiseScale}" TickFrequency="0.05" IsSnapToTickEnabled="True"/>
+                                    </StackPanel>
                                 </StackPanel>
                             </Border>
 
-                            <!-- PHẦN 4: TỐC ĐỘ (SPEED) & ĐỘ CAO (PITCH) -->
+                            <!-- TOC DO & DO CAO GIONG -->
                             <Grid Margin="0,0,0,4">
-                                <TextBlock Text="Tốc độ đọc (Speed):" Foreground="#E6F2FF" FontSize="12" VerticalAlignment="Center"/>
+                                <TextBlock Text="T&#x1ED1;c &#x0111;&#x1ED9; &#x0111;&#x1ECD;c (Speed):" Foreground="#E6F2FF" FontSize="12" VerticalAlignment="Center"/>
                                 <Border HorizontalAlignment="Right" Background="#26FFFFFF" BorderBrush="{Binding AccentBrush, FallbackValue=#0078D4}" BorderThickness="1" CornerRadius="3" Padding="8,1">
                                     <TextBlock Text="{Binding Speed, StringFormat={}{0:0.0#}x}" Foreground="White" FontWeight="Bold" FontFamily="Consolas" FontSize="12"/>
                                 </Border>
@@ -215,7 +226,7 @@
                             </UniformGrid>
 
                             <Grid Margin="0,0,0,4">
-                                <TextBlock Text="Độ cao giọng (Pitch):" Foreground="#E6F2FF" FontSize="12" VerticalAlignment="Center"/>
+                                <TextBlock Text="&#x0110;&#x1ED9; cao gi&#x1ECD;ng (Pitch):" Foreground="#E6F2FF" FontSize="12" VerticalAlignment="Center"/>
                                 <Border HorizontalAlignment="Right" Background="#26FFFFFF" BorderBrush="{Binding AccentBrush, FallbackValue=#0078D4}" BorderThickness="1" CornerRadius="3" Padding="8,1">
                                     <TextBlock Text="{Binding Pitch, StringFormat={}{0:0.0#}}" Foreground="White" FontWeight="Bold" FontFamily="Consolas" FontSize="12"/>
                                 </Border>
@@ -242,7 +253,7 @@
                     </ScrollViewer>
                 </Border>
 
-                <!-- PANEL PHẢI: SOẠN THẢO VĂN BẢN -->
+                <!-- PANEL PHAI: SOAN THAO VAN BAN (DA SUA DUT DIEM LOI FONT CHU) -->
                 <Border Grid.Column="1" Background="{Binding CardGlassBrush, FallbackValue=#73090E17}" CornerRadius="4" Padding="15"
                         BorderBrush="#30FFFFFF" BorderThickness="1">
                     <Grid>
@@ -254,11 +265,11 @@
 
                         <Grid Grid.Row="0" Margin="0,0,0,8">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock Text="SOáº N THáº¢O VÄ‚N Báº¢N" Foreground="{Binding AccentBrush, FallbackValue=#0078D4}" FontWeight="Bold" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                                <Button Content="ðŸ“‹ DÃ¡n vÄƒn báº£n" Command="{Binding PasteTextCommand}" Style="{StaticResource MiniChipBtn}" Padding="8,2"/>
-                                <Button Content="ðŸ§¹ XÃ³a tráº¯ng" Command="{Binding ClearTextCommand}" Style="{StaticResource MiniChipBtn}" Padding="8,2"/>
+                                <TextBlock Text="SO&#x1EA0;N TH&#x1EA2;O V&#x0102;N B&#x1EA2;N" Foreground="{Binding AccentBrush, FallbackValue=#0078D4}" FontWeight="Bold" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                <Button Content="&#x1F4CB; D&#x00E1;n v&#x0103;n b&#x1EA3;n" Command="{Binding PasteTextCommand}" Style="{StaticResource MiniChipBtn}" Padding="8,2"/>
+                                <Button Content="&#x1F9F9; X&#x00F3;a tr&#x1EAF;ng" Command="{Binding ClearTextCommand}" Style="{StaticResource MiniChipBtn}" Padding="8,2"/>
                             </StackPanel>
-                            <TextBlock Text="{Binding CharCount, StringFormat={}{0} / 5000 kÃ½ tá»±}" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#B0C8E0" FontSize="12"/>
+                            <TextBlock Text="{Binding CharCount, StringFormat={}{0} / 5000 k&#x00FD; t&#x1EF1;}" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#B0C8E0" FontSize="12"/>
                         </Grid>
 
                         <Grid Grid.Row="1">
@@ -271,7 +282,7 @@
                                          AcceptsReturn="True" TextWrapping="Wrap" MaxLength="5000"
                                          Background="Transparent" Foreground="#F5FAFF" CaretBrush="{Binding AccentBrush, FallbackValue=#0078D4}"
                                          BorderThickness="0" Padding="14" FontSize="15"
-                                         VerticalScrollBarVisibility="Auto" TextChanged="TextBox_TextChanged"/>
+                                         VerticalScrollBarVisibility="Auto"/>
                             </Border>
 
                             <Border Background="#99040810" CornerRadius="3"
@@ -281,12 +292,10 @@
                                         Background="#E60C1422" BorderBrush="{Binding AccentBrush, FallbackValue=#0078D4}" BorderThickness="1"
                                         CornerRadius="5" Padding="24,20">
                                     <StackPanel>
-                                        <TextBlock Text="🎙️ ĐANG TỔNG HỢP GIỌNG NÓI AI..." Foreground="White"
+                                        <TextBlock Text="&#x1F399; &#x0110;ANG T&#x1ED4;NG H&#x1EE2;P GI&#x1ECC;NG N&#x00D3;I AI..." Foreground="White"
                                                    FontWeight="Bold" FontSize="13.5" HorizontalAlignment="Center" Margin="0,0,0,8"/>
-
-                                        <TextBlock Text="{Binding SynthesisStatusText, FallbackValue=Đang xử lý...}" Foreground="#B8D8F8"
+                                        <TextBlock Text="{Binding SynthesisStatusText}" Foreground="#B8D8F8"
                                                    FontSize="12" HorizontalAlignment="Center" TextWrapping="Wrap" Margin="0,0,0,14"/>
-
                                         <Grid Height="20" Margin="0,0,0,6">
                                             <ProgressBar Value="{Binding SynthesisProgress, FallbackValue=0}" Minimum="0" Maximum="100"
                                                          Background="#44000000" Foreground="{Binding AccentBrush, FallbackValue=#0078D4}"
@@ -295,8 +304,7 @@
                                                        FontWeight="Bold" FontFamily="Consolas" FontSize="11.5"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Grid>
-
-                                        <TextBlock Text="Vui lòng đợi trong giây lát, các nút chức năng đang tạm khóa..."
+                                        <TextBlock Text="Vui l&#x00F2;ng &#x0111;&#x1EE3;i trong gi&#x00E2;y l&#x00E1;t..."
                                                    Foreground="#7898B8" FontSize="11" HorizontalAlignment="Center"/>
                                     </StackPanel>
                                 </Border>
@@ -305,15 +313,16 @@
 
                         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0"
                                     IsEnabled="{Binding IsControlsEnabled, FallbackValue=True}">
-                            <Button Content="📂 Mở thư mục Models" Command="{Binding OpenFolderCommand}" CommandParameter="Models" Style="{StaticResource FlatGlassBtn}" Width="155" Height="38" Margin="0,0,10,0"/>
-                            <Button Content="Lưu file .WAV" Command="{Binding SaveCommand}" Style="{StaticResource FlatGlassBtn}" Width="135" Height="38" Margin="0,0,10,0"/>
-                            <Button Content="▶ CHUYỂN GIỌNG NÓI" Command="{Binding SynthesizeCommand}" Style="{StaticResource FlatPrimaryBtn}" Width="195" Height="38"/>
+                            <Button Content="&#x1F5D1; D&#x1ECD;n d&#x1EB9;p Output" Command="{Binding ClearCacheCommand}" Style="{StaticResource FlatGlassBtn}" Width="140" Height="38" Margin="0,0,10,0"/>
+                            <Button Content="&#x1F4C2; Th&#x01B0; m&#x1EE5;c Models" Command="{Binding OpenFolderCommand}" CommandParameter="Models" Style="{StaticResource FlatGlassBtn}" Width="140" Height="38" Margin="0,0,10,0"/>
+                            <Button Content="L&#x01B0;u file .WAV" Command="{Binding SaveCommand}" Style="{StaticResource FlatGlassBtn}" Width="130" Height="38" Margin="0,0,10,0"/>
+                            <Button Content="&#x25B6; CHUY&#x1EC2;N GI&#x1ECC;NG N&#x00D3;I" Command="{Binding SynthesizeCommand}" Style="{StaticResource FlatPrimaryBtn}" Width="190" Height="38"/>
                         </StackPanel>
                     </Grid>
                 </Border>
             </Grid>
 
-            <!-- ==================== PANEL DƯỚI: SÓNG ÂM TƯƠNG TÁC 2 VẠCH (CHÍNH & PHỤ) ==================== -->
+            <!-- PANEL DUOI: TRINH PHAT SONG AM 2 VACH -->
             <Border Grid.Row="2" Background="#38040810" CornerRadius="0,0,6,6" Padding="12,8"
                     BorderBrush="#30FFFFFF" BorderThickness="0,1,0,0" IsEnabled="{Binding IsControlsEnabled, FallbackValue=True}">
                 <Grid>
@@ -325,12 +334,12 @@
 
                     <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                            <Button Content="▶" Command="{Binding PlayCommand}" Style="{StaticResource FlatIconBtn}" Width="38" Height="36" Margin="3"/>
-                            <Button Content="⏸" Command="{Binding PauseCommand}" Style="{StaticResource FlatIconBtn}" Width="38" Height="36" Margin="3"/>
-                            <Button Content="⏹" Command="{Binding StopCommand}" Style="{StaticResource FlatIconBtn}" Width="38" Height="36" Margin="3"/>
+                            <Button Content="&#x25B6;" Command="{Binding PlayCommand}" Style="{StaticResource FlatIconBtn}" Width="38" Height="36" Margin="3"/>
+                            <Button Content="&#x23F8;" Command="{Binding PauseCommand}" Style="{StaticResource FlatIconBtn}" Width="38" Height="36" Margin="3"/>
+                            <Button Content="&#x23F9;" Command="{Binding StopCommand}" Style="{StaticResource FlatIconBtn}" Width="38" Height="36" Margin="3"/>
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="4,8,4,0">
-                            <TextBlock Text="🔊" Foreground="#B0C8E0" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="&#x1F50A;" Foreground="#B0C8E0" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
                             <Slider Minimum="0" Maximum="100" Value="{Binding Volume}" Width="92" VerticalAlignment="Center"/>
                             <TextBlock Text="{Binding Volume, StringFormat={}{0:0}%}" Foreground="#D8ECFF" FontSize="11" Width="32" Margin="5,0,0,0"/>
                         </StackPanel>
@@ -345,7 +354,7 @@
                         <Border Grid.Row="0" Background="#40060D18" CornerRadius="3" Padding="10,2" BorderBrush="#28FFFFFF" BorderThickness="1">
                             <Grid>
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <TextBlock Text="VẠCH CHÍNH:" Foreground="#90B4D4" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock Text="V&#x1EA0;CH CH&#x00CD;NH:" Foreground="#90B4D4" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
                                     <TextBlock Text="{Binding CurrentTimeText}" Foreground="White" FontWeight="Bold" FontFamily="Consolas" FontSize="13.5" VerticalAlignment="Center"/>
                                     <TextBlock Text=" / " Foreground="#7090B0" FontFamily="Consolas" FontSize="12.5" VerticalAlignment="Center"/>
                                     <TextBlock Text="{Binding TotalTimeText}" Foreground="#C8E0F8" FontFamily="Consolas" FontSize="13" VerticalAlignment="Center"/>
@@ -355,7 +364,7 @@
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                                     <Border Background="#28FFFFFF" BorderBrush="{Binding SecondaryLineBrush, FallbackValue=#FFD600}" BorderThickness="1" CornerRadius="2" Padding="7,1" Margin="0,0,8,0">
                                         <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="VẠCH PHỤ: " Foreground="#C8E0F8" FontSize="10.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                            <TextBlock Text="V&#x1EA0;CH PH&#x1EE4;: " Foreground="#C8E0F8" FontSize="10.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                             <TextBlock Text="{Binding HoverTimeText}" Foreground="{Binding SecondaryLineBrush, FallbackValue=#FFD600}" FontWeight="Bold" FontFamily="Consolas" FontSize="12.5" VerticalAlignment="Center"/>
                                         </StackPanel>
                                     </Border>
@@ -376,18 +385,14 @@
                                 SizeChanged="WaveformContainer_SizeChanged">
                             <Grid>
                                 <Line X1="0" Y1="42" X2="2000" Y2="42" Stroke="#18FFFFFF" StrokeThickness="1" IsHitTestVisible="False"/>
-
                                 <Viewbox Stretch="Fill" Margin="0,4" IsHitTestVisible="False">
                                     <Polygon Points="{Binding WaveformPoints}" Fill="{Binding WaveformBrush, FallbackValue=#00B4FF}" Opacity="0.88"/>
                                 </Viewbox>
-
                                 <Canvas x:Name="TimelineOverlayCanvas" IsHitTestVisible="False">
                                     <Line x:Name="MainPlayheadLine" Y1="0" Y2="120" Stroke="#FF2E54" StrokeThickness="2" Canvas.Left="0"/>
-
                                     <Line x:Name="SecondaryHoverLine" Y1="0" Y2="120"
                                           Stroke="{Binding SecondaryLineBrush, FallbackValue=#FFD600}" StrokeThickness="1.5"
                                           StrokeDashArray="3,2" Visibility="Collapsed" Canvas.Left="0"/>
-
                                     <Border x:Name="SecondaryTimePopup" Background="#E60A121E"
                                             BorderBrush="{Binding SecondaryLineBrush, FallbackValue=#FFD600}" BorderThickness="1"
                                             CornerRadius="2" Padding="5,1" Visibility="Collapsed"
@@ -403,10 +408,13 @@
                     <Border Grid.Column="2" Background="#45050A12" CornerRadius="3" BorderBrush="#28FFFFFF" BorderThickness="1" Padding="6">
                         <Grid>
                             <Grid.RowDefinitions>
-                                <RowDefinition Height="18"/>
+                                <RowDefinition Height="22"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
-                            <TextBlock Grid.Row="0" Text="LỊCH SỬ BẢN GHI" Foreground="{Binding AccentBrush, FallbackValue=#0078D4}" FontWeight="Bold" FontSize="10.5" Margin="4,0,0,2"/>
+                            <Grid Grid.Row="0" Margin="4,0,2,2">
+                                <TextBlock Text="L&#x1ECA;CH S&#x1EEC; B&#x1EA2;N GHI" Foreground="{Binding AccentBrush, FallbackValue=#0078D4}" FontWeight="Bold" FontSize="10.5" VerticalAlignment="Center"/>
+                                <Button Content="&#x1F4C2; M&#x1EDF; file" Command="{Binding OpenSelectedHistoryFileCommand}" Style="{StaticResource MiniChipBtn}" HorizontalAlignment="Right" Padding="5,0" FontSize="10"/>
+                            </Grid>
                             <ListBox Grid.Row="1" Background="Transparent" Foreground="#E6F2FF" BorderThickness="0"
                                      ItemsSource="{Binding HistoryList}"
                                      SelectedItem="{Binding SelectedHistoryItem}"

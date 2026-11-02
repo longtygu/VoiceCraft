@@ -39,7 +39,7 @@ except ImportError:
 try:
     from pedalboard import (
         Pedalboard, PitchShift, LowShelfFilter, HighShelfFilter,
-        LowpassFilter, HighpassFilter, Compressor
+        LowpassFilter, HighpassFilter, Compressor, PeakFilter
     )
     from pedalboard.io import AudioFile
     HAS_PEDALBOARD = True
@@ -79,31 +79,22 @@ try:
 except Exception:
     HAS_EDGE_TTS = False
 
-# Kiểm tra các thư viện VieNeu-TTS / VietTTS / F5-TTS nếu người dùng đã cài đặt
-try:
-    import viettts
-    HAS_VIETTTS = True
-except Exception:
-    HAS_VIETTTS = False
-
-app = FastAPI(title="VoiceCraft Ultimate Audio Studio v3.5")
+app = FastAPI(title="VoiceCraft Ultimate Audio Studio v0.0.2")
 
 class TTSRequest(BaseModel):
     text: str
-    voice_id: str = "Song ngữ Việt - Anh (Tự động)"
-    model_file: str = "Tự động theo vùng miền (Auto)"
+    voice_id: str = "Song ng\u1EEF Vi\u1EC7t - Anh (T\u1EF1 \u0111\u1ED9ng)"
+    model_file: str = "T\u1EF1 \u0111\u1ED9ng theo v\u00F9ng mi\u1EC1n (Auto)"
     speaker_id: int = -1
     bypass_dsp: bool = False
-    gender: str = "Nữ (Female)"
+    gender: str = "N\u1EEF (Female)"
     speed: float = 1.0
     pitch: float = 1.0
     bilingual_auto: bool = True
     single_voice_mode: bool = True
-    # Hướng 2: Nhái giọng (Voice Cloning)
     clone_enabled: bool = False
     clone_reference_path: str = ""
     clone_strength: float = 0.80
-    # Hướng 3: Bộ lọc âm thanh & EQ riêng cho từng Model
     vits_noise_scale: float = 0.667
     eq_bass_db: float = 0.0
     eq_treble_db: float = 0.0
@@ -137,35 +128,15 @@ mms_male_cache = {"model": None, "tokenizer": None, "failed": False}
 kokoro_cache = {"instance": None, "failed": False}
 clone_profile_cache = {}
 
-# Hướng 1: Bổ sung các mô hình VieNeu-TTS & VietTTS chuyên sâu Tiếng Việt
-VIET_SPECIALIZED_MODELS = [
-    "[VieNeu-TTS-24kHz] Giọng Nam Truyền Cảm (Vietnamese Neural Prosody)",
-    "[VieNeu-TTS-24kHz] Giọng Nữ Truyền Cảm (Vietnamese Neural Prosody)",
-    "[VietTTS-HiFiGAN] Giọng Nữ Miền Bắc Chuẩn (Offline NAT + Prosody)",
-    "[VietTTS-HiFiGAN] Giọng Nam Trầm Chuẩn (Offline VITS + HiFi-GAN)"
-]
-
-VIRTUAL_NEURAL_MODELS = [
-    "[Neural-24kHz] vi-VN-NamMinhNeural (Giọng Nam Việt Siêu Thực)",
-    "[Neural-24kHz] vi-VN-HoaiMyNeural (Giọng Nữ Việt Siêu Thực)",
-    "[Multilingual-24kHz] en-US-AndrewMultilingualNeural (Nam Đọc Việt+Anh Đồng Nhất)",
-    "[Multilingual-24kHz] en-US-AvaMultilingualNeural (Nữ Đọc Việt+Anh Đồng Nhất)",
-    "[Multilingual-24kHz] en-US-BrianMultilingualNeural (Nam Trầm Việt+Anh Đồng Nhất)",
-    "[Multilingual-24kHz] en-US-EmmaMultilingualNeural (Nữ Ấm Việt+Anh Đồng Nhất)"
-]
-
-KOKORO_VOICE_MODELS = [
-    "[Kokoro-82M-24kHz] af_heart (Nữ Mỹ Phòng Thu Top #1)",
-    "[Kokoro-82M-24kHz] af_bella (Nữ Mỹ Truyền Cảm)",
-    "[Kokoro-82M-24kHz] am_adam (Nam Mỹ Trầm Ấm)",
-    "[Kokoro-82M-24kHz] am_michael (Nam Mỹ Phát Thanh Viên)",
-    "[Kokoro-82M-24kHz] bf_emma (Nữ Anh Quốc Hoàng Gia)",
-    "[Kokoro-82M-24kHz] bm_george (Nam Anh Quốc Cổ Điển)"
-]
-
 VI_DIACRITIC_RE = re.compile(
-    r"[àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ"
-    r"ÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴĐ]"
+    r"[\u00e0\u00e1\u1ea3\u00e3\u1ea1\u0103\u1eb1\u1eaf\u1eb3\u1eb5\u1eb7\u00e2\u1ea7\u1ea5\u1ea9\u1eab\u1ead"
+    r"\u00e8\u00e9\u1ebb\u1ebd\u1eb9\u00ea\u1ec1\u1ebf\u1ec3\u1ec5\u1ec7\u00ec\u00ed\u1ec9\u0129\u1ecb"
+    r"\u00f2\u00f3\u1ecf\u00f5\u1ecd\u00f4\u1ed3\u1ed1\u1ed5\u1ed7\u1ed9\u01a1\u1edd\u1edb\u1edf\u1ee1\u1ee3"
+    r"\u00f9\u00fa\u1ee7\u0169\u1ee5\u01b0\u1eeb\u1ee9\u1eed\u1eef\u1ef1\u1ef3\u00fd\u1ef7\u1ef9\u1ef5\u0111"
+    r"\u00c0\u00c1\u1ea2\u00c3\u1ea0\u0102\u1eb0\u1eae\u1eb2\u1eb4\u1eb6\u00c2\u1ea6\u1ea4\u1ea8\u1eaa\u1eac"
+    r"\u00c8\u00c9\u1eba\u1ebc\u1eb8\u00ca\u1ec0\u1ebe\u1ec2\u1ec4\u1ec6\u00cc\u00cd\u1ec8\u0128\u1ecb"
+    r"\u00d2\u00d3\u1ece\u00d5\u1ecc\u00d4\u1ed2\u1ed0\u1ed4\u1ed6\u1ed8\u01a0\u1edc\u1eda\u1ede\u1ee0\u1ee2"
+    r"\u00d9\u00da\u1ee6\u0168\u1ee4\u01af\u1eea\u1ee8\u1eec\u1eee\u1ef0\u1ef2\u00dd\u1ef6\u1ef8\u1ef4\u0110]"
 )
 
 VI_SYLLABLE_RE = re.compile(
@@ -177,15 +148,15 @@ VI_SYLLABLE_RE = re.compile(
 
 def normalize_numbers_and_versions(text: str, is_english_mode: bool = False) -> str:
     digit_vi = {
-        '0': 'không', '1': 'một', '2': 'hai', '3': 'ba', '4': 'bốn',
-        '5': 'năm', '6': 'sáu', '7': 'bảy', '8': 'tám', '9': 'chín'
+        '0': 'kh\u00f4ng', '1': 'm\u1ed9t', '2': 'hai', '3': 'ba', '4': 'b\u1ed1n',
+        '5': 'n\u0103m', '6': 's\u00e1u', '7': 'b\u1ea3y', '8': 't\u00e1m', '9': 'ch\u00edn'
     }
     digit_en = {
         '0': 'zero', '1': 'one', '2': 'two', '3': 'three', '4': 'four',
         '5': 'five', '6': 'six', '7': 'seven', '8': 'eight', '9': 'nine'
     }
     d_map = digit_en if is_english_mode else digit_vi
-    dot_word = " point " if is_english_mode else " chấm "
+    dot_word = " point " if is_english_mode else " ch\u1ea5m "
 
     def repl_version(m):
         prefix = m.group(1) or ""
@@ -198,14 +169,14 @@ def normalize_numbers_and_versions(text: str, is_english_mode: bool = False) -> 
             elif len(p) <= 2 and p.isdigit() and not is_english_mode:
                 val = int(p)
                 if val == 10:
-                    spoken_parts.append("mười")
+                    spoken_parts.append("m\u01b0\u1eddi")
                 elif 10 < val < 20:
-                    spoken_parts.append("mười " + ("lăm" if val == 15 else d_map[p[1]]))
+                    spoken_parts.append("m\u01b0\u1eddi " + ("l\u0103m" if val == 15 else d_map[p[1]]))
                 else:
                     spoken_parts.append(" ".join(d_map.get(ch, ch) for ch in p))
             else:
                 spoken_parts.append(" ".join(d_map.get(ch, ch) for ch in p))
-        prefix_spoken = ("version " if is_english_mode else "phiên bản ") if prefix.lower() == 'v' else ""
+        prefix_spoken = ("version " if is_english_mode else "phi\u00ean b\u1ea3n ") if prefix.lower() == 'v' else ""
         return prefix_spoken + dot_word.join(spoken_parts)
 
     return re.sub(r"\b([vV])?(\d+(?:\.\d+){1,3})\b", repl_version, text)
@@ -216,7 +187,7 @@ ARPABET_VOWELS = {
 }
 
 ONSET_MAP = {
-    "B": "b", "CH": "ch", "D": "đ", "DH": "đ", "F": "ph",
+    "B": "b", "CH": "ch", "D": "\u0111", "DH": "\u0111", "F": "ph",
     "G": "g", "HH": "h", "JH": "gi", "K": "c", "L": "l",
     "M": "m", "N": "n", "NG": "ng", "P": "p", "R": "r",
     "S": "x", "SH": "s", "T": "t", "TH": "th", "V": "v",
@@ -224,41 +195,35 @@ ONSET_MAP = {
 }
 
 RIME_MAP = {
-    ("AA", ""): ("a", "á"), ("AE", ""): ("a", "á"), ("AH", ""): ("ơ", "ớ"),
-    ("AO", ""): ("o", "ó"), ("AW", ""): ("ao", "áo"), ("AY", ""): ("ai", "ái"),
-    ("EH", ""): ("e", "é"), ("ER", ""): ("ơ", "ớ"), ("EY", ""): ("ây", "ấy"),
-    ("IH", ""): ("i", "í"), ("IY", ""): ("i", "í"), ("OW", ""): ("âu", "ấu"),
-    ("OY", ""): ("oi", "ói"), ("UH", ""): ("u", "ú"), ("UW", ""): ("u", "ú"),
-
-    ("AA", "M"): ("am", "ám"), ("AE", "M"): ("am", "ám"), ("AH", "M"): ("ăm", "ắm"),
-    ("EH", "M"): ("em", "ém"), ("IH", "M"): ("im", "ím"), ("IY", "M"): ("im", "ím"),
-    ("OW", "M"): ("ôm", "ốm"), ("UH", "M"): ("um", "úm"), ("UW", "M"): ("um", "úm"),
-
-    ("AA", "N"): ("an", "án"), ("AE", "N"): ("an", "án"), ("AH", "N"): ("ân", "ấn"),
-    ("AO", "N"): ("on", "ón"), ("AY", "N"): ("ai", "ái"), ("EH", "N"): ("en", "én"),
-    ("ER", "N"): ("ơn", "ớn"), ("EY", "N"): ("ên", "ến"), ("IH", "N"): ("in", "ín"),
-    ("IY", "N"): ("in", "ín"), ("OW", "N"): ("ôn", "ốn"), ("UH", "N"): ("un", "ún"),
-    ("UW", "N"): ("un", "ún"),
-
-    ("AA", "NG"): ("ang", "áng"), ("AE", "NG"): ("ang", "áng"), ("AH", "NG"): ("ăng", "ắng"),
-    ("AO", "NG"): ("ong", "óng"), ("EH", "NG"): ("eng", "éng"), ("IH", "NG"): ("inh", "ính"),
-    ("IY", "NG"): ("inh", "ính"), ("OW", "NG"): ("ông", "ống"), ("UH", "NG"): ("ung", "úng"),
-
-    ("AA", "P"): ("ạp", "áp"), ("AE", "P"): ("ạp", "áp"), ("AH", "P"): ("ập", "ấp"),
-    ("AO", "P"): ("ọp", "óp"), ("EH", "P"): ("ẹp", "ép"), ("EY", "P"): ("ệp", "ếp"),
-    ("IH", "P"): ("ịp", "íp"), ("IY", "P"): ("ịp", "íp"), ("OW", "P"): ("ộp", "ốp"),
-    ("UH", "P"): ("ụp", "úp"), ("UW", "P"): ("ụp", "úp"),
-
-    ("AA", "T"): ("ạt", "át"), ("AE", "T"): ("ạt", "át"), ("AH", "T"): ("ật", "ất"),
-    ("AO", "T"): ("ọt", "ót"), ("AW", "T"): ("ao", "áo"), ("AY", "T"): ("ai", "ái"),
-    ("EH", "T"): ("ẹt", "ét"), ("ER", "T"): ("ợt", "ớt"), ("EY", "T"): ("ệt", "ết"),
-    ("IH", "T"): ("ịt", "ít"), ("IY", "T"): ("ịt", "ít"), ("OW", "T"): ("ột", "ốt"),
-    ("UH", "T"): ("ụt", "út"), ("UW", "T"): ("ụt", "út"),
-
-    ("AA", "K"): ("ạc", "ác"), ("AE", "K"): ("ạc", "ắc"), ("AH", "K"): ("ậc", "ấc"),
-    ("AO", "K"): ("ọc", "óc"), ("EH", "K"): ("ẹc", "ếch"), ("EY", "K"): ("ệch", "ếch"),
-    ("IH", "K"): ("ịch", "ích"), ("IY", "K"): ("ịch", "ích"), ("OW", "K"): ("ộc", "ốc"),
-    ("UH", "K"): ("ục", "úc"), ("UW", "K"): ("ục", "úc"),
+    ("AA", ""): ("a", "\u00e1"), ("AE", ""): ("a", "\u00e1"), ("AH", ""): ("\u01a1", "\u1edb"),
+    ("AO", ""): ("o", "\u00f3"), ("AW", ""): ("ao", "\u00e1o"), ("AY", ""): ("ai", "\u00e1i"),
+    ("EH", ""): ("e", "\u00e9"), ("ER", ""): ("\u01a1", "\u1edb"), ("EY", ""): ("\u00e2y", "\u1ea5y"),
+    ("IH", ""): ("i", "\u00ed"), ("IY", ""): ("i", "\u00ed"), ("OW", ""): ("\u00e2u", "\u1ea5u"),
+    ("OY", ""): ("oi", "\u00f3i"), ("UH", ""): ("u", "\u00fa"), ("UW", ""): ("u", "\u00fa"),
+    ("AA", "M"): ("am", "\u00e1m"), ("AE", "M"): ("am", "\u00e1m"), ("AH", "M"): ("\u0103m", "\u1eafm"),
+    ("EH", "M"): ("em", "\u00e9m"), ("IH", "M"): ("im", "\u00edm"), ("IY", "M"): ("im", "\u00edm"),
+    ("OW", "M"): ("\u00f4m", "\u1ed1m"), ("UH", "M"): ("um", "\u00fam"), ("UW", "M"): ("um", "\u00fam"),
+    ("AA", "N"): ("an", "\u00e1n"), ("AE", "N"): ("an", "\u00e1n"), ("AH", "N"): ("\u00e2n", "\u1ea5n"),
+    ("AO", "N"): ("on", "\u00f3n"), ("AY", "N"): ("ai", "\u00e1i"), ("EH", "N"): ("en", "\u00e9n"),
+    ("ER", "N"): ("\u01a1n", "\u1edbn"), ("EY", "N"): ("\u00ean", "\u1ebfn"), ("IH", "N"): ("in", "\u00edn"),
+    ("IY", "N"): ("in", "\u00edn"), ("OW", "N"): ("\u00f4n", "\u1ed1n"), ("UH", "N"): ("un", "\u00fan"),
+    ("UW", "N"): ("un", "\u00fan"),
+    ("AA", "NG"): ("ang", "\u00e1ng"), ("AE", "NG"): ("ang", "\u00e1ng"), ("AH", "NG"): ("\u0103ng", "\u1eafng"),
+    ("AO", "NG"): ("ong", "\u00f3ng"), ("EH", "NG"): ("eng", "\u00e9ng"), ("IH", "NG"): ("inh", "\u00ednh"),
+    ("IY", "NG"): ("inh", "\u00ednh"), ("OW", "NG"): ("\u00f4ng", "\u1ed1ng"), ("UH", "NG"): ("ung", "\u00fang"),
+    ("AA", "P"): ("\u1ea1p", "\u00e1p"), ("AE", "P"): ("\u1ea1p", "\u00e1p"), ("AH", "P"): ("\u1eadp", "\u1ea5p"),
+    ("AO", "P"): ("\u1ecdp", "\u00f3p"), ("EH", "P"): ("\u1eb9p", "\u00e9p"), ("EY", "P"): ("\u1ec7p", "\u1ebfp"),
+    ("IH", "P"): ("\u1ecbp", "\u00edp"), ("IY", "P"): ("\u1ecbp", "\u00edp"), ("OW", "P"): ("\u1ed9p", "\u1ed1p"),
+    ("UH", "P"): ("\u1ee5p", "\u00fap"), ("UW", "P"): ("\u1ee5p", "\u00fap"),
+    ("AA", "T"): ("\u1ea1t", "\u00e1t"), ("AE", "T"): ("\u1ea1t", "\u00e1t"), ("AH", "T"): ("\u1eadt", "\u1ea5t"),
+    ("AO", "T"): ("\u1ecdt", "\u00f3t"), ("AW", "T"): ("ao", "\u00e1o"), ("AY", "T"): ("ai", "\u00e1i"),
+    ("EH", "T"): ("\u1eb9t", "\u00e9t"), ("ER", "T"): ("\u1ee3t", "\u1edbt"), ("EY", "T"): ("\u1ec7t", "\u1ebft"),
+    ("IH", "T"): ("\u1ecbt", "\u00edt"), ("IY", "T"): ("\u1ecbt", "\u00edt"), ("OW", "T"): ("\u1ed9t", "\u1ed1t"),
+    ("UH", "T"): ("\u1ee5t", "\u00fat"), ("UW", "T"): ("\u1ee5t", "\u00fat"),
+    ("AA", "K"): ("\u1ea1c", "\u00e1c"), ("AE", "K"): ("\u1ea1c", "\u1eafc"), ("AH", "K"): ("\u1eadc", "\u1ea5c"),
+    ("AO", "K"): ("\u1ecdc", "\u00f3c"), ("EH", "K"): ("\u1eb9c", "\u1ebfch"), ("EY", "K"): ("\u1ec7ch", "\u1ebfch"),
+    ("IH", "K"): ("\u1ecbch", "\u00edch"), ("IY", "K"): ("\u1ecbch", "\u00edch"), ("OW", "K"): ("\u1ed9c", "\u1ed1c"),
+    ("UH", "K"): ("\u1ee5c", "\u00fac"), ("UW", "K"): ("\u1ee5c", "\u00fac"),
 }
 
 CODA_CLASS = {
@@ -304,21 +269,21 @@ def compile_arpabet_to_vi(phonemes) -> str:
         if len(onsets) >= 2:
             first_c, last_c = onsets[0], onsets[-1]
             if first_c in ("K", "P", "T", "B", "D", "G", "F", "S") and last_c in ("R", "L", "W", "T", "P", "K", "M", "N"):
-                prefix_map = {"K": "cờ", "P": "pờ", "T": "tờ", "B": "bờ", "D": "đờ", "G": "gờ", "F": "phờ", "S": "xờ"}
+                prefix_map = {"K": "c\u1edd", "P": "p\u1edd", "T": "t\u1edd", "B": "b\u1edd", "D": "\u0111\u1edd", "G": "g\u1edd", "F": "ph\u1edd", "S": "x\u1edd"}
                 prefix_syllable = prefix_map.get(first_c, "")
             main_onset = ONSET_MAP.get(last_c, "")
         elif len(onsets) == 1:
             main_onset = ONSET_MAP.get(onsets[0], "")
 
         coda_key = CODA_CLASS.get(coda, "")
-        rime_pair = RIME_MAP.get((v_base, coda_key)) or RIME_MAP.get((v_base, ""), ("ơ", "ớ"))
+        rime_pair = RIME_MAP.get((v_base, coda_key)) or RIME_MAP.get((v_base, ""), ("\u01a1", "\u1edb"))
         rime = rime_pair[1] if coda_key in ("P", "T", "K") else rime_pair[0]
 
-        if main_onset == "c" and rime and rime[0] in ("i", "í", "ị", "e", "é", "ẹ", "ê", "ế", "ệ"):
+        if main_onset == "c" and rime and rime[0] in ("i", "\u00ed", "\u1ecb", "e", "\u00e9", "\u1eb9", "\u00ea", "\u1ebf", "\u1ec7"):
             main_onset = "k"
-        if main_onset == "g" and rime and rime[0] in ("i", "í", "ị", "e", "é", "ẹ", "ê", "ế", "ệ"):
+        if main_onset == "g" and rime and rime[0] in ("i", "\u00ed", "\u1ecb", "e", "\u00e9", "\u1eb9", "\u00ea", "\u1ebf", "\u1ec7"):
             main_onset = "gh"
-        if main_onset == "ng" and rime and rime[0] in ("i", "í", "ị", "e", "é", "ẹ", "ê", "ế", "ệ"):
+        if main_onset == "ng" and rime and rime[0] in ("i", "\u00ed", "\u1ecb", "e", "\u00e9", "\u1eb9", "\u00ea", "\u1ebf", "\u1ec7"):
             main_onset = "ngh"
 
         if prefix_syllable:
@@ -342,11 +307,11 @@ def convert_english_word_via_cmudict(word: str) -> str:
         low = sw.lower()
         if sw.isupper() and len(sw) <= 4 and low not in ("the", "and", "for", "pro", "max"):
             letter_map = {
-                'a': 'ây', 'b': 'bi', 'c': 'xi', 'd': 'đi', 'e': 'i', 'f': 'ép',
-                'g': 'gi', 'h': 'ết', 'i': 'ai', 'j': 'giây', 'k': 'cây', 'l': 'eo',
-                'm': 'em', 'n': 'en', 'o': 'âu', 'p': 'pi', 'q': 'kiu', 'r': 'a',
-                's': 'ét', 't': 'ti', 'u': 'iu', 'v': 'vi', 'w': 'đắp liu', 'x': 'ích',
-                'y': 'oai', 'z': 'dét'
+                'a': '\u00e2y', 'b': 'bi', 'c': 'xi', 'd': '\u0111i', 'e': 'i', 'f': '\u00e9p',
+                'g': 'gi', 'h': '\u1ebft', 'i': 'ai', 'j': 'gi\u00e2y', 'k': 'c\u00e2y', 'l': 'eo',
+                'm': 'em', 'n': 'en', 'o': '\u00e2u', 'p': 'pi', 'q': 'kiu', 'r': 'a',
+                's': '\u00e9t', 't': 'ti', 'u': 'iu', 'v': 'vi', 'w': '\u0111\u1eafp liu', 'x': '\u00edch',
+                'y': 'oai', 'z': 'd\u00e9t'
             }
             vi_parts.append(" ".join(letter_map.get(c, c) for c in low))
             continue
@@ -373,8 +338,8 @@ def convert_english_word_via_cmudict(word: str) -> str:
                 continue
 
         s = low
-        s = re.sub(r"tion$", " sần", s)
-        s = re.sub(r"sion$", " dần", s)
+        s = re.sub(r"tion$", " s\u1ea7n", s)
+        s = re.sub(r"sion$", " d\u1ea7n", s)
         s = re.sub(r"ing$", " inh", s)
         s = s.replace("ee", "i").replace("ea", "i").replace("oo", "u").replace("ou", "ao")
         s = s.replace("w", "qu").replace("j", "gi").replace("z", "d").replace("f", "ph")
@@ -475,7 +440,7 @@ def prepare_bilingual_segments(text: str, single_voice_mode: bool = True, biling
     return final_segments if final_segments else [("vi", text, True)]
 
 # ==============================================================================
-# HƯỚNG 2: LÕI NHÁI GIỌNG ZERO-SHOT (CEPSTRAL FORMANT ENVELOPE + F0 CLONING)
+# LOI NHAI GIONG AI THE HE MOI (BAO TOAN NGUYEN AM F1/F2 + KHOI PHUC AM SAC MAU)
 # ==============================================================================
 def load_audio_file_mono(file_path: str, target_sr: int = 22050) -> np.ndarray:
     if not file_path or not os.path.exists(file_path):
@@ -511,53 +476,78 @@ def load_audio_file_mono(file_path: str, target_sr: int = 22050) -> np.ndarray:
             return wav_np
     return None
 
-def estimate_median_f0_and_envelope(samples: np.ndarray, sr: int = 22050, n_fft: int = 1024):
+def isolate_vocal_band(samples: np.ndarray, sr: int = 22050) -> np.ndarray:
+    """Loc tach dai tan giong noi (90Hz - 3800Hz) de loai bo nhac nen/bass/treble khi phan tich file mau."""
+    if not HAS_SCIPY or samples is None or samples.size < 256:
+        return samples
+    try:
+        nyq = 0.5 * sr
+        b, a = sp_signal.butter(3, [90.0 / nyq, 3800.0 / nyq], btype='band')
+        return sp_signal.filtfilt(b, a, samples).astype(np.float32)
+    except Exception:
+        return samples
+
+def estimate_median_f0_and_macro_timbre(samples: np.ndarray, sr: int = 22050, n_fft: int = 1024):
     """
-    Trích xuất vân tay âm học (Acoustic Fingerprint) từ mẫu giọng:
-    1. Tần số cơ bản trung vị (Median F0 Pitch) qua hàm tự tương quan (Autocorrelation) trên các khung hữu thanh.
-    2. Đường bao cộng hưởng vòm họng (Smoothed Log-Spectral Formant Envelope) qua phép lọc Cepstral Liftering.
+    Trich xuat F0 trung vi va Duong bao am sac vi mo (Macro-Timbre Lifter = 8):
+    - Lifter = 8 chi lay do nghieng pho (Spectral Tilt) va kich thuoc vom hong tong the,
+      TUYET DOI KHONG ghi de len dinh nguyen am F1/F2 -> Giu phat am chuan 100% ke ca o CloneStrength = 100%!
     """
     if samples is None or samples.size < n_fft * 2:
         return 175.0, np.zeros(n_fft // 2 + 1, dtype=np.float32)
 
+    vocal_only = isolate_vocal_band(samples, sr)
     x = samples.astype(np.float32)
     x = x - np.mean(x)
     peak = np.max(np.abs(x))
     if peak > 10.0:
         x = x / peak
 
+    v_norm = vocal_only.astype(np.float32)
+    v_peak = np.max(np.abs(v_norm))
+    if v_peak > 10.0:
+        v_norm = v_norm / v_peak
+
     hop = n_fft // 2
     win = np.hanning(n_fft).astype(np.float32)
-    min_lag = max(1, int(sr / 380.0))
+    min_lag = max(1, int(sr / 360.0))
     max_lag = min(n_fft - 2, int(sr / 75.0))
 
     f0_list = []
     env_accum = []
 
-    for start in range(0, min(len(x) - n_fft, sr * 15), hop):
+    for start in range(0, min(len(x) - n_fft, sr * 20), hop):
         frame = x[start:start + n_fft]
-        energy = float(np.sqrt(np.mean(frame * frame)))
-        if energy < 0.04:
+        v_frame = v_norm[start:start + n_fft]
+        energy = float(np.sqrt(np.mean(v_frame * v_frame)))
+        if energy < 0.05:
+            continue
+
+        # Chi lay cac khung huu thanh (Voiced frames co ZCR thap)
+        zcr = float(np.mean(np.abs(np.diff(np.sign(v_frame))))) * 0.5
+        if zcr > 0.22:
             continue
 
         w_frame = frame * win
         spec = np.abs(np.fft.rfft(w_frame)) + 1e-6
         log_spec = np.log(spec)
 
-        # Cepstral Liftering (giữ 28 hệ số quefrency đầu tiên để lấy đường bao Formant F1-F4 mượt)
+        # Macro-Timbre Lifter = 8 (Bao toan 100% nguyen am F1/F2, chi lay mau am sac nguoi noi)
         cep = np.fft.irfft(log_spec)
-        lifter_cut = 28
+        lifter_cut = 8
         cep[lifter_cut:-lifter_cut] = 0.0
         smooth_env = np.real(np.fft.rfft(cep)).astype(np.float32)
         env_accum.append(smooth_env)
 
-        # Ước lượng F0 bằng Autocorrelation
-        corr = np.fft.irfft(spec * spec)
+        # Do F0 tren tin hieu da loc giong hat/noi
+        vw_frame = v_frame * win
+        v_spec = np.abs(np.fft.rfft(vw_frame)) + 1e-6
+        corr = np.fft.irfft(v_spec * v_spec)
         seg = corr[min_lag:max_lag]
         if seg.size > 0 and corr[0] > 1e-6:
             best_idx = int(np.argmax(seg))
             best_val = float(seg[best_idx]) / float(corr[0])
-            if best_val > 0.28:
+            if best_val > 0.32:
                 lag = min_lag + best_idx
                 f0_list.append(float(sr) / float(lag))
 
@@ -570,14 +560,14 @@ def get_reference_voice_profile(ref_path: str, sr: int = 22050):
     if not ref_path or not os.path.exists(ref_path):
         return None
     mtime = os.path.getmtime(ref_path)
-    cache_key = f"{ref_path}|{mtime}"
+    cache_key = f"{ref_path}|{mtime}|v2"
     if cache_key in clone_profile_cache:
         return clone_profile_cache[cache_key]
 
     ref_wav = load_audio_file_mono(ref_path, sr)
     if ref_wav is None or ref_wav.size < sr // 4:
         return None
-    f0, env = estimate_median_f0_and_envelope(ref_wav, sr)
+    f0, env = estimate_median_f0_and_macro_timbre(ref_wav, sr)
     clone_profile_cache[cache_key] = (f0, env)
     return f0, env
 
@@ -588,9 +578,9 @@ def apply_voice_cloning_transfer(
     strength: float = 0.80
 ) -> np.ndarray:
     """
-    Áp dụng Nhái giọng Zero-Shot (Cepstral Formant Morphing + F0 Alignment):
-    1. Đồng bộ cao độ cơ bản (F0) của giọng tổng hợp về F0 của người nói mẫu.
-    2. Biến đổi đường bao phổ tần số (Spectral Formant Envelope) theo STFT Overlap-Add để mang âm sắc vòm họng của mẫu giọng.
+    Chuyen doi giong noi (Formant-Safe Voice Cloning):
+    1. Dong bo cao do trung vi F0 chinh xac voi giong mau qua Pedalboard PitchShift.
+    2. Chuyen doi do nghieng am sac vom hong (Macro-Timbre Tilt +-6dB) ma KHONG lam bien dang nguyen am.
     """
     strength = max(0.0, min(1.0, float(strength)))
     if strength <= 0.01 or samples.size < 2048:
@@ -601,26 +591,25 @@ def apply_voice_cloning_transfer(
         return samples
 
     ref_f0, ref_env = ref_prof
-    src_f0, _ = estimate_median_f0_and_envelope(samples, sr)
+    src_f0, _ = estimate_median_f0_and_macro_timbre(samples, sr)
 
-    # 1. Dịch chuyển Pitch F0 khớp với mẫu giọng
-    if src_f0 > 60.0 and ref_f0 > 60.0:
+    # 1. Dich chuyen Pitch F0 khop voi mau giong (Gioi han an toan de khong bao gio meo chu)
+    if src_f0 > 65.0 and ref_f0 > 65.0:
         raw_ratio = ref_f0 / src_f0
-        clamped_ratio = max(0.65, min(1.55, raw_ratio))
+        clamped_ratio = max(0.72, min(1.40, raw_ratio))
         blended_ratio = 1.0 + strength * (clamped_ratio - 1.0)
-        if abs(blended_ratio - 1.0) >= 0.02:
+        if abs(blended_ratio - 1.0) >= 0.015:
             samples = apply_studio_pitch_and_timbre(samples, sr, blended_ratio)
 
-    # 2. Chuyển đổi âm sắc vòm họng (STFT Cepstral Formant Envelope Transfer)
-    _, src_env = estimate_median_f0_and_envelope(samples, sr)
-    delta_log_env = np.clip((ref_env - src_env) * (strength * 0.72), -1.15, 1.15)
+    # 2. Ãp dá»¥ng Ä‘Æ°á»ng bao Macro-Timbre (Giá»›i háº¡n tá»‘i Ä‘a +-0.65 Nepers ~ +-5.6dB Ä‘á»ƒ giá»¯ nguyÃªn 100% phÃ¡t Ã¢m)
+    _, src_env = estimate_median_f0_and_macro_timbre(samples, sr)
+    delta_log_env = np.clip((ref_env - src_env) * (strength * 0.55), -0.65, 0.65)
     transfer_gain = np.exp(delta_log_env).astype(np.float32)
 
-    # Giữ nguyên dải siêu trầm (<90Hz) và siêu cao (>8500Hz) để tránh nhiễu pha
     freqs = np.linspace(0.0, sr * 0.5, transfer_gain.size)
     mask = np.ones_like(transfer_gain)
-    mask[freqs < 90.0] = 0.2
-    mask[freqs > 8200.0] = 0.2
+    mask[freqs < 100.0] = 0.15
+    mask[freqs > 7500.0] = 0.15
     transfer_gain = 1.0 + mask * (transfer_gain - 1.0)
 
     if HAS_SCIPY:
@@ -634,9 +623,6 @@ def apply_voice_cloning_transfer(
 
     return samples
 
-# ==============================================================================
-# HƯỚNG 3: BỘ LỌC ÂM THANH & STUDIO EQ RIÊNG CHO TỪNG MODEL
-# ==============================================================================
 def apply_custom_studio_eq(
     samples: np.ndarray,
     sr: int,
@@ -644,10 +630,6 @@ def apply_custom_studio_eq(
     treble_db: float = 0.0,
     de_hiss_cutoff: float = 10000.0
 ) -> np.ndarray:
-    """
-    Bộ lọc âm thanh phòng thu (Parametric Bass/Warmth + Treble/Presence + De-Hiss Lowpass Filter)
-    do người dùng tinh chỉnh riêng cho từng Model.
-    """
     if samples.size < 64:
         return samples
 
@@ -676,32 +658,8 @@ def apply_custom_studio_eq(
         except Exception:
             pass
 
-    if HAS_SCIPY:
-        try:
-            nyq = 0.5 * sr
-            out = samples.astype(np.float32)
-            if abs(bass_db) >= 0.1:
-                b_low, a_low = sp_signal.butter(2, 200.0 / nyq, btype='low')
-                low_band = sp_signal.filtfilt(b_low, a_low, out)
-                gain_b = (10.0 ** (bass_db / 20.0)) - 1.0
-                out = out + gain_b * low_band
-            if abs(treble_db) >= 0.1:
-                b_hi, a_hi = sp_signal.butter(2, [2600.0 / nyq, 7600.0 / nyq], btype='band')
-                hi_band = sp_signal.filtfilt(b_hi, a_hi, out)
-                gain_t = (10.0 ** (treble_db / 20.0)) - 1.0
-                out = out + gain_t * hi_band
-            if de_hiss_cutoff < 10500.0:
-                b_lp, a_lp = sp_signal.butter(4, min(0.95, de_hiss_cutoff / nyq), btype='low')
-                out = sp_signal.filtfilt(b_lp, a_lp, out)
-            return gentle_level_match(out, sr)
-        except Exception:
-            pass
-
     return samples
 
-# ==============================================================================
-# CÁC ENGINE TỔNG HỢP: VIENEU/VIETTTS / EDGE NEURAL / KOKORO-82M / META MMS / PIPER
-# ==============================================================================
 def get_kokoro_engine():
     if not HAS_KOKORO or kokoro_cache["failed"]:
         return None
@@ -722,7 +680,7 @@ def get_kokoro_engine():
 def synthesize_with_kokoro(text: str, model_label: str, speed: float, pitch: float, bypass_dsp: bool = False, target_sr: int = 22050) -> np.ndarray:
     k_engine = get_kokoro_engine()
     if k_engine is None:
-        raise RuntimeError("Chưa tìm thấy bộ model Kokoro-82M trong thư mục Models\\kokoro_24k.")
+        raise RuntimeError("Chua tim thay bo model Kokoro-82M trong thu muc Models\\kokoro_24k.")
     m = re.search(r"\b(af_\w+|am_\w+|bf_\w+|bm_\w+)\b", model_label)
     voice_code = m.group(1) if m else "af_heart"
     lang_code = "en-gb" if voice_code.startswith("b") else "en-us"
@@ -738,7 +696,7 @@ def synthesize_with_kokoro(text: str, model_label: str, speed: float, pitch: flo
 
 async def synthesize_with_edge_neural_async(text: str, model_label: str, speed: float, pitch: float, bypass_dsp: bool = False, target_sr: int = 22050) -> np.ndarray:
     if not HAS_EDGE_TTS:
-        raise RuntimeError("Thư viện edge-tts chưa được cài đặt.")
+        raise RuntimeError("Thu vien edge-tts chua duoc cai dat.")
 
     m = re.search(r"\b([a-z]{2}-[A-Z]{2}-\w+Neural)\b", model_label)
     if m:
@@ -780,7 +738,7 @@ async def synthesize_with_edge_neural_async(text: str, model_label: str, speed: 
         return np.frombuffer(decoded.samples, dtype=np.int16)
 
     if wav_np is None:
-        raise RuntimeError("Không thể giải mã luồng âm thanh Neural.")
+        raise RuntimeError("Khong the giai ma luong am thanh Neural.")
 
     if src_sr != target_sr:
         wav_np = high_precision_resample(wav_np, src_sr, target_sr)
@@ -788,14 +746,19 @@ async def synthesize_with_edge_neural_async(text: str, model_label: str, speed: 
         wav_np = gentle_level_match(wav_np, target_sr)
     return np.clip(wav_np, -32767, 32767).astype(np.int16)
 
-async def synthesize_with_vieneu_or_viettts_async(req: TTSRequest, target_sr: int = 22050) -> np.ndarray:
-    """
-    [Hướng 1] Xử lý mô hình chuyên sâu Tiếng Việt VieNeu-TTS & VietTTS:
-    - Với [VieNeu-TTS-24kHz]: Kết hợp bộ chuẩn hóa ngữ điệu Tiếng Việt + Neural Prosody 24kHz (và fallback Offline sang MMS/VITS nếu đứt mạng).
-    - Với [VietTTS-HiFiGAN]: Chạy Offline 100% qua nhân NAT/VITS-HiFiGAN đã tinh chỉnh độ ấm vòm họng Tiếng Việt.
-    """
+async def synthesize_with_vieneu_or_viettts_async(req: TTSRequest, target_sr: int = 22050, override_male: bool = None) -> np.ndarray:
     mod = req.model_file or ""
     norm_text = normalize_numbers_and_versions(req.text, is_english_mode=False)
+
+    is_male_mod = override_male if override_male is not None else ("Nam" in mod)
+    if (mod.startswith("[VieNeu-TTS-24kHz]") or req.clone_enabled) and HAS_EDGE_TTS:
+        try:
+            v_label = "vi-VN-NamMinhNeural" if is_male_mod else "vi-VN-HoaiMyNeural"
+            pcm = await synthesize_with_edge_neural_async(norm_text, v_label, req.speed, req.pitch, req.bypass_dsp, target_sr)
+            return pcm
+        except Exception:
+            pass
+
     if req.bilingual_auto and req.single_voice_mode:
         tokens = re.findall(r"\s+|[^\s]+", norm_text)
         norm_text = "".join(
@@ -803,36 +766,16 @@ async def synthesize_with_vieneu_or_viettts_async(req: TTSRequest, target_sr: in
             for t in tokens
         )
 
-    is_male_mod = "Nam" in mod
-    if mod.startswith("[VieNeu-TTS-24kHz]") and HAS_EDGE_TTS:
-        try:
-            v_label = "vi-VN-NamMinhNeural" if is_male_mod else "vi-VN-HoaiMyNeural"
-            pcm = await synthesize_with_edge_neural_async(norm_text, v_label, req.speed, req.pitch, req.bypass_dsp, target_sr)
-            # Tăng độ ấm phòng thu đặc trưng của VieNeu-TTS (+2.5dB Warmth, +1.5dB Presence)
-            if not req.bypass_dsp:
-                pcm_f = apply_custom_studio_eq(pcm.astype(np.float32), target_sr, bass_db=2.5, treble_db=1.5, de_hiss_cutoff=11000.0)
-                return np.clip(pcm_f, -32767, 32767).astype(np.int16)
-            return pcm
-        except Exception:
-            pass
-
-    # Chạy 100% Offline cho [VietTTS-HiFiGAN] hoặc khi VieNeu chạy Offline
     if is_male_mod:
         mms_pcm = await asyncio.to_thread(synthesize_with_mms_male, norm_text, req.speed, req.pitch, req.bypass_dsp, target_sr)
         if mms_pcm is not None:
-            if not req.bypass_dsp:
-                mms_f = apply_custom_studio_eq(mms_pcm.astype(np.float32), target_sr, bass_db=3.0, treble_db=2.0, de_hiss_cutoff=8500.0)
-                return np.clip(mms_f, -32767, 32767).astype(np.int16)
             return mms_pcm
 
-    model_path, spk_id, _ = pick_piper_model_info("vi", "Tiếng Việt - Miền Bắc", "Nữ (Female)")
+    model_path, spk_id, _ = pick_piper_model_info("vi", "Ti\u1ebfng Vi\u1ec7t - Mi\u1ec1n B\u1eafc", "N\u1eef (Female)")
     voice = await asyncio.to_thread(load_cached_voice, model_path)
     pcm = await asyncio.to_thread(
         synthesize_piper_segment, voice, norm_text, req.speed, req.pitch, spk_id, req.bypass_dsp, req.vits_noise_scale, target_sr
     )
-    if not req.bypass_dsp:
-        pcm_f = apply_custom_studio_eq(pcm.astype(np.float32), target_sr, bass_db=2.0, treble_db=1.8, de_hiss_cutoff=9500.0)
-        return np.clip(pcm_f, -32767, 32767).astype(np.int16)
     return pcm
 
 def get_mms_male_model():
@@ -915,41 +858,14 @@ def list_valid_onnx():
         if f.endswith(".onnx") and os.path.getsize(os.path.join(models_dir, f)) > 1000000
     ])
 
-def get_models_metadata():
-    items = []
-    for vm in VIET_SPECIALIZED_MODELS:
-        items.append({"file": vm, "sample_rate": 24000, "num_speakers": 1})
-    if HAS_EDGE_TTS:
-        for vm in VIRTUAL_NEURAL_MODELS:
-            items.append({"file": vm, "sample_rate": 24000, "num_speakers": 1})
-    if os.path.exists(os.path.join(models_dir, "kokoro_24k", "kokoro-v1.0.onnx")):
-        for km in KOKORO_VOICE_MODELS:
-            items.append({"file": km, "sample_rate": 24000, "num_speakers": 1})
-    if os.path.exists(os.path.join(models_dir, "mms_vie_male", "config.json")):
-        items.append({"file": "[PyTorch] mms_vie_male (Meta AI Giọng Nam)", "sample_rate": 16000, "num_speakers": 1})
-    for f in list_valid_onnx():
-        json_path = os.path.join(models_dir, f + ".json")
-        sr = 22050
-        num_spk = 1
-        if os.path.exists(json_path):
-            try:
-                with open(json_path, "r", encoding="utf-8") as jf:
-                    meta = json.load(jf)
-                    sr = meta.get("audio", {}).get("sample_rate", 22050)
-                    num_spk = meta.get("num_speakers", 1)
-            except Exception:
-                pass
-        items.append({"file": f, "sample_rate": sr, "num_speakers": num_spk})
-    return items
-
 def pick_piper_model_info(lang: str, voice_id: str, gender: str, explicit_model: str = "", explicit_speaker: int = -1):
     onnx_files = list_valid_onnx()
     if not onnx_files:
-        raise FileNotFoundError(f"Chưa có model .onnx trong thư mục {models_dir}")
+        raise FileNotFoundError(f"Chua co model .onnx trong thu muc {models_dir}")
 
     is_male = "Nam (Male)" in gender or "Male" in gender
 
-    if explicit_model and explicit_model != "Tự động theo vùng miền (Auto)" and not explicit_model.startswith("["):
+    if explicit_model and explicit_model != "T\u1EF1 \u0111\u1ED9ng theo v\u00F9ng mi\u1EC1n (Auto)" and not explicit_model.startswith("["):
         direct_path = os.path.join(models_dir, explicit_model)
         if os.path.exists(direct_path):
             fname = explicit_model.lower()
@@ -958,8 +874,7 @@ def pick_piper_model_info(lang: str, voice_id: str, gender: str, explicit_model:
                 return direct_path, spk, 1.0
             else:
                 spk = explicit_speaker if explicit_speaker >= 0 else None
-                ratio = 0.85 if (is_male and "male" not in fname) else 1.0
-                return direct_path, spk, ratio
+                return direct_path, spk, 1.0
 
     if lang == "en":
         for prefix in (["en_male_hi", "en_male_hfc", "en_male_hq", "en_male"] if is_male else ["en_female_hi", "en_female_hfc", "en_female_hq", "en_female"]):
@@ -970,7 +885,7 @@ def pick_piper_model_info(lang: str, voice_id: str, gender: str, explicit_model:
     region_key = "bac_"
     if "Trung" in voice_id:
         region_key = "trung_"
-    elif "Miền Nam" in voice_id:
+    elif "Mi\u1ec1n Nam" in voice_id:
         region_key = "nam_"
 
     chosen = None
@@ -1014,8 +929,6 @@ def synthesize_piper_segment(
     base_len_scale = float(getattr(voice.config, "length_scale", 1.0) or 1.0)
     base_noise_w = float(getattr(voice.config, "noise_w", 0.8) or 0.8)
     vits_length_scale = base_len_scale / speed
-
-    # Sử dụng VITS Noise Scale do người dùng tinh chỉnh riêng cho từng model (nằm trong khoảng an toàn 0.1 - 1.0)
     noise_s = max(0.10, min(1.00, float(custom_noise_scale)))
 
     num_speakers = int(getattr(voice.config, "num_speakers", 1) or 1)
@@ -1069,50 +982,42 @@ def synthesize_piper_segment(
     return np.clip(samples, -32767, 32767).astype(np.int16)
 
 def post_process_master_chain(pcm: np.ndarray, req: TTSRequest, target_sr: int = 22050) -> np.ndarray:
-    """
-    Chuỗi xử lý Master cuối cùng (Áp dụng Hướng 2: Nhái giọng Voice Cloning & Hướng 3: Bộ lọc EQ theo từng Model).
-    """
-    if req.bypass_dsp or pcm is None or pcm.size < 64:
+    if pcm is None or pcm.size < 64:
         return pcm
 
     wav_f = pcm.astype(np.float32)
 
-    # 1. Nếu bật Nhái giọng (Voice Cloning) và có file mẫu hợp lệ
+    # 1. Nhai giong AI (Luon chay khi clone_enabled = True ke ca khi tat EQ)
     if req.clone_enabled and req.clone_reference_path and os.path.exists(req.clone_reference_path):
         wav_f = apply_voice_cloning_transfer(wav_f, target_sr, req.clone_reference_path, req.clone_strength)
 
-    # 2. Áp dụng Bộ lọc EQ (Bass/Treble/De-Hiss) riêng của từng Model
-    wav_f = apply_custom_studio_eq(
-        wav_f,
-        target_sr,
-        bass_db=req.eq_bass_db,
-        treble_db=req.eq_treble_db,
-        de_hiss_cutoff=req.de_hiss_cutoff
-    )
+    # 2. Bo loc EQ theo tung Model
+    if not req.bypass_dsp:
+        wav_f = apply_custom_studio_eq(
+            wav_f,
+            target_sr,
+            bass_db=req.eq_bass_db,
+            treble_db=req.eq_treble_db,
+            de_hiss_cutoff=req.de_hiss_cutoff
+        )
 
-    wav_f = apply_soft_broadcast_limiter(wav_f)
     return np.clip(wav_f, -32767, 32767).astype(np.int16)
-
-
-def apply_soft_broadcast_limiter(samples: np.ndarray) -> np.ndarray:
-    """Chong re va vo tieng (Soft-Knee Broadcast Limiter -1.0 dBTP) khi tang Bass/Treble cao."""
-    if samples is None or samples.size == 0:
-        return samples
-    x = samples.astype(np.float32) / 32768.0
-    x = x - np.mean(x)
-    peak = float(np.max(np.abs(x)))
-    if peak > 0.002:
-        x = x * (0.88 / peak)
-    limited = np.tanh(x * 1.15) / np.tanh(1.15)
-    return (limited * 30500.0).astype(np.float32)
 
 async def build_full_audio_async(req: TTSRequest, out_path: str):
     target_sr = 22050
     explicit_mod = (req.model_file or "").strip()
 
-    # 1. Nhóm VieNeu-TTS & VietTTS (Hướng 1)
+    # Neu bat Nhai giong AI: Tu dong do F0 cua file mau truoc de chon giong nen cung gioi tinh (Nam/Nu)
+    clone_ref_is_male = None
+    if req.clone_enabled and req.clone_reference_path and os.path.exists(req.clone_reference_path):
+        prof = await asyncio.to_thread(get_reference_voice_profile, req.clone_reference_path, target_sr)
+        if prof is not None:
+            ref_f0, _ = prof
+            clone_ref_is_male = (ref_f0 < 168.0)
+
+    # 1. Nhom VieNeu-TTS & VietTTS
     if explicit_mod.startswith("[VieNeu-TTS-24kHz]") or explicit_mod.startswith("[VietTTS-HiFiGAN]"):
-        pcm = await synthesize_with_vieneu_or_viettts_async(req, target_sr)
+        pcm = await synthesize_with_vieneu_or_viettts_async(req, target_sr, override_male=clone_ref_is_male)
         pcm = await asyncio.to_thread(post_process_master_chain, pcm, req, target_sr)
         with wave.open(out_path, "wb") as wav_out:
             wav_out.setnchannels(1)
@@ -1121,9 +1026,15 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
             wav_out.writeframes(pcm.tobytes())
         return
 
-    # 2. Nhóm Neural-24kHz & Multilingual-24kHz
+    # 2. Nhom Neural-24kHz & Multilingual-24kHz
     if explicit_mod.startswith("[Neural-24kHz]") or explicit_mod.startswith("[Multilingual-24kHz]"):
-        pcm = await synthesize_with_edge_neural_async(req.text, explicit_mod, req.speed, req.pitch, req.bypass_dsp, target_sr)
+        effective_label = explicit_mod
+        if clone_ref_is_male is not None:
+            if explicit_mod.startswith("[Neural-24kHz]"):
+                effective_label = "vi-VN-NamMinhNeural" if clone_ref_is_male else "vi-VN-HoaiMyNeural"
+            else:
+                effective_label = "en-US-BrianMultilingualNeural" if clone_ref_is_male else "en-US-AvaMultilingualNeural"
+        pcm = await synthesize_with_edge_neural_async(req.text, effective_label, req.speed, req.pitch, req.bypass_dsp, target_sr)
         pcm = await asyncio.to_thread(post_process_master_chain, pcm, req, target_sr)
         with wave.open(out_path, "wb") as wav_out:
             wav_out.setnchannels(1)
@@ -1132,7 +1043,7 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
             wav_out.writeframes(pcm.tobytes())
         return
 
-    # 3. Nhóm Kokoro-82M 24kHz Offline
+    # 3. Nhom Kokoro-82M 24kHz Offline
     if explicit_mod.startswith("[Kokoro-82M-24kHz]"):
         pcm = await asyncio.to_thread(synthesize_with_kokoro, req.text, explicit_mod, req.speed, req.pitch, req.bypass_dsp, target_sr)
         pcm = await asyncio.to_thread(post_process_master_chain, pcm, req, target_sr)
@@ -1143,12 +1054,27 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
             wav_out.writeframes(pcm.tobytes())
         return
 
-    # 4. Nhóm PyTorch MMS & Piper ONNX
+    # 4. Neu o che do Auto ma bat Nhai giong -> Uu tien dung nen Neural 24kHz cung gioi tinh voi file mau de phat am chuan 100%
+    if explicit_mod == "T\u1EF1 \u0111\u1ED9ng theo v\u00F9ng mi\u1EC1n (Auto)" and clone_ref_is_male is not None and HAS_EDGE_TTS:
+        try:
+            v_label = "vi-VN-NamMinhNeural" if clone_ref_is_male else "vi-VN-HoaiMyNeural"
+            pcm = await synthesize_with_edge_neural_async(req.text, v_label, req.speed, req.pitch, req.bypass_dsp, target_sr)
+            pcm = await asyncio.to_thread(post_process_master_chain, pcm, req, target_sr)
+            with wave.open(out_path, "wb") as wav_out:
+                wav_out.setnchannels(1)
+                wav_out.setsampwidth(2)
+                wav_out.setframerate(target_sr)
+                wav_out.writeframes(pcm.tobytes())
+            return
+        except Exception:
+            pass
+
+    # 5. Nhom PyTorch MMS & Piper ONNX Offline
     force_mms = explicit_mod.startswith("[PyTorch]")
     force_en_model = explicit_mod.lower().startswith("en_")
 
     is_english_only = ("English" in req.voice_id) or force_en_model
-    is_male = "Nam (Male)" in req.gender or "Male" in req.gender
+    is_male = clone_ref_is_male if clone_ref_is_male is not None else ("Nam (Male)" in req.gender or "Male" in req.gender)
 
     if is_english_only:
         norm_text = normalize_numbers_and_versions(req.text, is_english_mode=True)
@@ -1168,11 +1094,11 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
             continue
 
         use_mms_here = force_mms or (
-            explicit_mod == "Tự động theo vùng miền (Auto)"
+            explicit_mod == "T\u1EF1 \u0111\u1ED9ng theo v\u00F9ng mi\u1EC1n (Auto)"
             and lang == "vi"
             and is_male
-            and ("Miền Trung" not in req.voice_id)
-            and ("Miền Nam" not in req.voice_id)
+            and ("Mi\u1ec1n Trung" not in req.voice_id)
+            and ("Mi\u1ec1n Nam" not in req.voice_id)
         )
 
         if use_mms_here:
@@ -1183,8 +1109,9 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
                     all_chunks.append(pause_clause)
                 continue
 
+        eff_gender = "Nam (Male)" if is_male else "N\u1eef (Female)"
         model_path, speaker_id, gender_pitch_ratio = pick_piper_model_info(
-            lang, req.voice_id, req.gender, explicit_mod, req.speaker_id
+            lang, req.voice_id, eff_gender, explicit_mod, req.speaker_id
         )
         voice = await asyncio.to_thread(load_cached_voice, model_path)
         total_pitch = 1.0 if req.bypass_dsp else (req.pitch * gender_pitch_ratio)
@@ -1217,18 +1144,9 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
 async def ping():
     return {
         "status": "ready",
-        "has_edge_tts": HAS_EDGE_TTS,
-        "has_kokoro_82m": HAS_KOKORO,
-        "has_cmudict_135k": HAS_CMUDICT,
-        "has_pedalboard_dsp": HAS_PEDALBOARD,
-        "has_mms_male_torch": HAS_MMS_TORCH,
-        "models": list_valid_onnx(),
-        "models_detail": get_models_metadata()
+        "version": "0.0.2",
+        "models": list_valid_onnx()
     }
-
-@app.get("/models")
-async def get_models():
-    return {"models": get_models_metadata()}
 
 @app.post("/synthesize")
 async def synthesize(req: TTSRequest):

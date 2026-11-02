@@ -1,10 +1,185 @@
-<Application x:Class="VoiceCraft.App"
+﻿<Application x:Class="VoiceCraft.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:VoiceCraft"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-        <!-- Nút phẳng hiện đại Windows 10 kết hợp nền trong suốt Windows 7 -->
+        <!-- THANH CUON (SCROLLBAR) HIEN DAI DONG BO THIET KE KINH TOI -->
+        <Style x:Key="ScrollBarThumbStyle" TargetType="{x:Type Thumb}">
+            <Setter Property="IsTabStop" Value="False"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Thumb}">
+                        <Border x:Name="thumbBd" Background="#45FFFFFF" CornerRadius="3" Margin="1"/>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="thumbBd" Property="Background" Value="{Binding DataContext.AccentBrush, RelativeSource={RelativeSource AncestorType=Window}, FallbackValue=#00B4FF}"/>
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="thumbBd" Property="Background" Value="#FFFFFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="{x:Type ScrollBar}">
+            <Setter Property="Stylus.IsFlicksEnabled" Value="False"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Width" Value="7"/>
+            <Setter Property="MinWidth" Value="7"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ScrollBar}">
+                        <Grid Background="#12000000">
+                            <Track x:Name="PART_Track" IsDirectionReversed="True" Focusable="False">
+                                <Track.Thumb>
+                                    <Thumb Style="{StaticResource ScrollBarThumbStyle}"/>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="Orientation" Value="Horizontal">
+                    <Setter Property="Width" Value="Auto"/>
+                    <Setter Property="Height" Value="7"/>
+                    <Setter Property="MinHeight" Value="7"/>
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="{x:Type ScrollBar}">
+                                <Grid Background="#12000000">
+                                    <Track x:Name="PART_Track" IsDirectionReversed="False" Focusable="False">
+                                        <Track.Thumb>
+                                            <Thumb Style="{StaticResource ScrollBarThumbStyle}"/>
+                                        </Track.Thumb>
+                                    </Track>
+                                </Grid>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- THANH GAT TRANG THAI (SLIDER) HIEN DAI -->
+        <Style TargetType="{x:Type Slider}">
+            <Setter Property="Stylus.IsPressAndHoldEnabled" Value="False"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Height" Value="20"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Slider}">
+                        <Grid VerticalAlignment="Center">
+                            <Border Height="4" CornerRadius="2" Background="#38FFFFFF" VerticalAlignment="Center"/>
+                            <Track x:Name="PART_Track">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="Slider.DecreaseLarge" Opacity="0" Focusable="False"/>
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="Slider.IncreaseLarge" Opacity="0" Focusable="False"/>
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb x:Name="SliderThumb" Width="14" Height="14" Cursor="Hand">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="{x:Type Thumb}">
+                                                <Ellipse x:Name="thumbCircle" Width="14" Height="14"
+                                                         Fill="{Binding DataContext.AccentBrush, RelativeSource={RelativeSource AncestorType=Window}, FallbackValue=#00B4FF}"
+                                                         Stroke="#FFFFFF" StrokeThickness="1.5"/>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="thumbCircle" Property="Fill" Value="#00E5FF"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- CONG TAC GAT (TOGGLE SWITCH) THAY CHO CHECKBOX MAC DINH -->
+        <Style TargetType="{x:Type CheckBox}">
+            <Setter Property="Foreground" Value="#E6F2FF"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type CheckBox}">
+                        <Grid Background="Transparent" VerticalAlignment="Center">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="38"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Border x:Name="SwitchTrack" Grid.Column="0" Width="34" Height="18" CornerRadius="9"
+                                    Background="#33FFFFFF" BorderBrush="#55FFFFFF" BorderThickness="1"
+                                    VerticalAlignment="Center" HorizontalAlignment="Left">
+                                <Ellipse x:Name="SwitchKnob" Width="12" Height="12" Fill="#D8ECFF"
+                                         HorizontalAlignment="Left" VerticalAlignment="Center" Margin="2,0,0,0"/>
+                            </Border>
+                            <ContentPresenter Grid.Column="1" VerticalAlignment="Center" Margin="6,0,0,0" RecognizesAccessKey="True"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="SwitchTrack" Property="Background" Value="{Binding DataContext.AccentBrush, RelativeSource={RelativeSource AncestorType=Window}, FallbackValue=#0078D4}"/>
+                                <Setter TargetName="SwitchTrack" Property="BorderBrush" Value="#AAFFFFFF"/>
+                                <Setter TargetName="SwitchKnob" Property="HorizontalAlignment" Value="Right"/>
+                                <Setter TargetName="SwitchKnob" Property="Margin" Value="0,0,2,0"/>
+                                <Setter TargetName="SwitchKnob" Property="Fill" Value="#FFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="SwitchTrack" Property="BorderBrush" Value="#FFFFFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- CONG TAC GAT TIEU DE TAB (TIEU DE BEN TRAI - CONG TAC BEN PHAI) -->
+        <Style x:Key="HeaderToggleSwitch" TargetType="{x:Type CheckBox}">
+            <Setter Property="Foreground" Value="#00E5FF"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type CheckBox}">
+                        <Grid Background="Transparent" VerticalAlignment="Center">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <ContentPresenter Grid.Column="0" VerticalAlignment="Center"/>
+                            <Border x:Name="SwitchTrack" Grid.Column="1" Width="36" Height="18" CornerRadius="9"
+                                    Background="#33FFFFFF" BorderBrush="#55FFFFFF" BorderThickness="1"
+                                    VerticalAlignment="Center" Margin="8,0,0,0">
+                                <Ellipse x:Name="SwitchKnob" Width="12" Height="12" Fill="#D8ECFF"
+                                         HorizontalAlignment="Left" VerticalAlignment="Center" Margin="2,0,0,0"/>
+                            </Border>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="SwitchTrack" Property="Background" Value="#00E676"/>
+                                <Setter TargetName="SwitchTrack" Property="BorderBrush" Value="#FFFFFF"/>
+                                <Setter TargetName="SwitchKnob" Property="HorizontalAlignment" Value="Right"/>
+                                <Setter TargetName="SwitchKnob" Property="Margin" Value="0,0,2,0"/>
+                                <Setter TargetName="SwitchKnob" Property="Fill" Value="#FFFFFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- CAC NUT BAM PHANG KINH TRONG SUOT -->
         <Style TargetType="Button" x:Key="FlatGlassBtn">
             <Setter Property="Foreground" Value="#F0F6FC"/>
             <Setter Property="Background" Value="#26FFFFFF"/>
@@ -16,12 +191,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="border"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="3"
-                                Padding="{TemplateBinding Padding}">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="3" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -41,28 +211,19 @@
             </Setter>
         </Style>
 
-        <!-- Nút hành động chính phẳng (Windows 10 Accent Flat) -->
         <Style TargetType="Button" x:Key="FlatPrimaryBtn" BasedOn="{StaticResource FlatGlassBtn}">
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="border"
-                                Background="{Binding AccentBrush}"
-                                BorderBrush="#55FFFFFF"
-                                BorderThickness="1"
-                                CornerRadius="3"
-                                Padding="{TemplateBinding Padding}">
+                        <Border x:Name="border" Background="{Binding AccentBrush}" BorderBrush="#55FFFFFF" BorderThickness="1" CornerRadius="3" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="border" Property="Opacity" Value="0.88"/>
                                 <Setter TargetName="border" Property="BorderBrush" Value="#FFFFFF"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="border" Property="Opacity" Value="0.75"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.38"/>
@@ -73,20 +234,17 @@
             </Setter>
         </Style>
 
-        <!-- Nút điều khiển âm thanh phẳng vuông nhẹ kiểu Windows 10 -->
         <Style TargetType="Button" x:Key="FlatIconBtn" BasedOn="{StaticResource FlatGlassBtn}">
             <Setter Property="Padding" Value="0"/>
             <Setter Property="FontSize" Value="14"/>
         </Style>
 
-        <!-- Nút chip chọn nhanh thông số -->
         <Style TargetType="Button" x:Key="MiniChipBtn" BasedOn="{StaticResource FlatGlassBtn}">
             <Setter Property="FontSize" Value="11"/>
-            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="Padding" Value="5,2"/>
             <Setter Property="Margin" Value="2,0"/>
         </Style>
 
-        <!-- Nút thanh tiêu đề chuẩn Windows 10 -->
         <Style TargetType="Button" x:Key="Win10TitleBtn">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Foreground" Value="#D0DCE8"/>
@@ -110,7 +268,6 @@
             </Style.Triggers>
         </Style>
 
-        <!-- Nút Đóng cửa sổ chuẩn Windows 10 (Hover đỏ) -->
         <Style TargetType="Button" x:Key="Win10CloseBtn" BasedOn="{StaticResource Win10TitleBtn}">
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
@@ -120,7 +277,6 @@
             </Style.Triggers>
         </Style>
 
-        <!-- COMBOBOX ITEM HIỆN ĐẠI ĐỒNG BỘ GIAO DIỆN KÍNH TỐI -->
         <Style TargetType="ComboBoxItem">
             <Setter Property="Foreground" Value="#E6F2FF"/>
             <Setter Property="Background" Value="Transparent"/>
@@ -148,31 +304,18 @@
             </Setter>
         </Style>
 
-        <!-- COMBOBOX PHẲNG HIỆN ĐẠI WINDOWS 10 TRONG SUỐT -->
         <ControlTemplate x:Key="ModernComboBoxToggleButton" TargetType="ToggleButton">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="30"/>
                 </Grid.ColumnDefinitions>
-                <Border x:Name="Border" Grid.ColumnSpan="2"
-                        Background="#330A121E"
-                        BorderBrush="#40FFFFFF"
-                        BorderThickness="1"
-                        CornerRadius="3"/>
-                <Path x:Name="Arrow" Grid.Column="1"
-                      Fill="#D0E4F8"
-                      HorizontalAlignment="Center"
-                      VerticalAlignment="Center"
-                      Data="M 0 0 L 4.5 4.5 L 9 0 Z"/>
+                <Border x:Name="Border" Grid.ColumnSpan="2" Background="#330A121E" BorderBrush="#40FFFFFF" BorderThickness="1" CornerRadius="3"/>
+                <Path Grid.Column="1" Fill="#D0E4F8" HorizontalAlignment="Center" VerticalAlignment="Center" Data="M 0 0 L 4.5 4.5 L 9 0 Z"/>
             </Grid>
             <ControlTemplate.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter TargetName="Border" Property="Background" Value="#48142238"/>
-                    <Setter TargetName="Border" Property="BorderBrush" Value="{Binding DataContext.AccentBrush, RelativeSource={RelativeSource AncestorType=Window}}"/>
-                </Trigger>
-                <Trigger Property="IsChecked" Value="True">
-                    <Setter TargetName="Border" Property="Background" Value="#58142238"/>
                     <Setter TargetName="Border" Property="BorderBrush" Value="{Binding DataContext.AccentBrush, RelativeSource={RelativeSource AncestorType=Window}}"/>
                 </Trigger>
             </ControlTemplate.Triggers>
@@ -180,46 +323,19 @@
 
         <Style TargetType="ComboBox">
             <Setter Property="Foreground" Value="#F2F8FF"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Height" Value="34"/>
-            <Setter Property="SnapsToDevicePixels" Value="True"/>
-            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto"/>
-            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Height" Value="32"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ComboBox">
                         <Grid>
-                            <ToggleButton Name="ToggleButton"
-                                          Template="{StaticResource ModernComboBoxToggleButton}"
-                                          Focusable="False"
-                                          IsChecked="{Binding Path=IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
-                                          ClickMode="Press"/>
-                            <ContentPresenter Name="ContentSite"
-                                              IsHitTestVisible="False"
-                                              Content="{TemplateBinding SelectionBoxItem}"
-                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
-                                              ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
-                                              Margin="10,3,30,3"
-                                              VerticalAlignment="Center"
-                                              HorizontalAlignment="Left"/>
-                            <Popup Name="Popup"
-                                   Placement="Bottom"
-                                   IsOpen="{TemplateBinding IsDropDownOpen}"
-                                   AllowsTransparency="True"
-                                   Focusable="False"
-                                   PopupAnimation="Fade">
-                                <Grid Name="DropDown"
-                                      SnapsToDevicePixels="True"
-                                      MinWidth="{TemplateBinding ActualWidth}"
-                                      MaxHeight="{TemplateBinding MaxDropDownHeight}">
-                                    <Border x:Name="DropDownBorder"
-                                            Background="#F2101824"
-                                            BorderThickness="1"
-                                            BorderBrush="{Binding DataContext.AccentBrush, RelativeSource={RelativeSource AncestorType=Window}}"
-                                            CornerRadius="3"
-                                            Margin="0,2,0,0">
+                            <ToggleButton Name="ToggleButton" Template="{StaticResource ModernComboBoxToggleButton}" Focusable="False" IsChecked="{Binding Path=IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" ClickMode="Press"/>
+                            <ContentPresenter Name="ContentSite" IsHitTestVisible="False" Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" Margin="10,3,30,3" VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                            <Popup Name="Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
+                                <Grid Name="DropDown" SnapsToDevicePixels="True" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                    <Border Background="#F2101824" BorderThickness="1" BorderBrush="{Binding DataContext.AccentBrush, RelativeSource={RelativeSource AncestorType=Window}}" CornerRadius="3" Margin="0,2,0,0">
                                         <ScrollViewer Margin="2" SnapsToDevicePixels="True">
-                                            <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
+                                            <StackPanel IsItemsHost="True"/>
                                         </ScrollViewer>
                                     </Border>
                                 </Grid>

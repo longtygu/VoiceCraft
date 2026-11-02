@@ -48,6 +48,14 @@
       "EqTrebleDb": 1.5,
       "DeHissCutoff": 10500,
       "VitsNoiseScale": 0.67
+    },
+    "[Multilingual-24kHz] en-US-BrianMultilingualNeural (Nam Tr\u1EA7m Vi\u1EC7t\u002BAnh \u0110\u1ED3ng Nh\u1EA5t)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 0,
+      "EqTrebleDb": 0,
+      "DeHissCutoff": 10000,
+      "VitsNoiseScale": 0.67
     }
   },
   "GitHubRepo": "Longtygu/VoiceCraft"

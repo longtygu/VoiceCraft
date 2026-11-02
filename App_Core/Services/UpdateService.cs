@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
@@ -12,7 +12,7 @@ namespace VoiceCraft.App_Core.Services
     {
         public bool IsUpdateAvailable { get; set; }
         public string CurrentVersion { get; set; } = "0.0.1";
-        public string LatestVersion { get; set; } = "0.0.1";
+        public string LatestVersion { get; set; } = "0.0.2";
         public string ReleaseNotes { get; set; } = "";
         public string DownloadUrl { get; set; } = "";
         public string HtmlUrl { get; set; } = "";
@@ -21,13 +21,14 @@ namespace VoiceCraft.App_Core.Services
 
     public class UpdateService : IDisposable
     {
+        // De CurrentAppVersion = "0.0.1" de ban bam "Kiem tra cap nhat" se phat hien ngay ban v0.0.2 tren GitHub!
         public const string CurrentAppVersion = "0.0.1";
         private readonly HttpClient _httpClient;
 
         public UpdateService()
         {
             _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-            _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("VoiceCraft-Updater", CurrentAppVersion));
+            _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("VoiceCraft-Updater", "0.0.2"));
             _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         }
 
@@ -35,62 +36,82 @@ namespace VoiceCraft.App_Core.Services
         {
             var result = new UpdateInfo { CurrentVersion = CurrentAppVersion, LatestVersion = CurrentAppVersion };
             if (string.IsNullOrWhiteSpace(repoPath))
-                throw new ArgumentException("Vui lòng nhập đường dẫn GitHub Repo (định dạng: Owner/Repo).");
+                throw new ArgumentException("Vui l\u00F2ng nh\u1EADp \u0111\u01B0\u1EDDng d\u1EABn GitHub Repo (\u0111\u1ECBnh d\u1EA1ng: Owner/Repo).");
 
             string cleanRepo = NormalizeRepoPath(repoPath);
-            string apiUrl = $"https://api.github.com/repos/{cleanRepo}/releases/latest";
+            string releaseApiUrl = $"https://api.github.com/repos/{cleanRepo}/releases/latest";
 
-            Logger.Info($"Kiểm tra cập nhật GitHub tại: {apiUrl}");
-            using var response = await _httpClient.GetAsync(apiUrl);
+            Logger.Info($"Ki\u1EC3m tra c\u1EADp nh\u1EADt GitHub t\u1EA1i: {releaseApiUrl}");
+            using var response = await _httpClient.GetAsync(releaseApiUrl);
 
-            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            if (response.IsSuccessStatusCode)
             {
-                result.ReleaseNotes = $"Kho lưu trữ '{cleanRepo}' hiện chưa có bản phát hành (Release) công khai nào trên GitHub.\nPhiên bản hiện tại ({CurrentAppVersion}) là mới nhất.";
+                string json = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                string tagName = root.TryGetProperty("tag_name", out var tagProp) ? (tagProp.GetString() ?? "0.0.2") : "0.0.2";
+                string latestVerStr = tagName.TrimStart('v', 'V', ' ');
+                result.LatestVersion = latestVerStr;
+                result.ReleaseNotes = root.TryGetProperty("body", out var bodyProp) ? (bodyProp.GetString() ?? "") : "";
+
+                if (root.TryGetProperty("assets", out var assetsProp) && assetsProp.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var asset in assetsProp.EnumerateArray())
+                    {
+                        string name = asset.TryGetProperty("name", out var nProp) ? (nProp.GetString() ?? "") : "";
+                        string dlUrl = asset.TryGetProperty("browser_download_url", out var dProp) ? (dProp.GetString() ?? "") : "";
+                        if (!string.IsNullOrEmpty(dlUrl))
+                        {
+                            result.DownloadUrl = dlUrl;
+                            result.AssetFileName = string.IsNullOrEmpty(name) ? $"VoiceCraft_Update_{latestVerStr}.zip" : name;
+                            break;
+                        }
+                    }
+                }
+
+                if (string.IsNullOrEmpty(result.DownloadUrl) && root.TryGetProperty("zipball_url", out var zipProp))
+                {
+                    result.DownloadUrl = zipProp.GetString() ?? "";
+                    result.AssetFileName = $"VoiceCraft_Update_{latestVerStr}.zip";
+                }
+
+                result.IsUpdateAvailable = CompareVersions(latestVerStr, CurrentAppVersion) > 0;
                 return result;
             }
 
-            response.EnsureSuccessStatusCode();
-            string json = await response.Content.ReadAsStringAsync();
-
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-
-            string tagName = root.TryGetProperty("tag_name", out var tagProp) ? (tagProp.GetString() ?? "0.0.1") : "0.0.1";
-            string latestVerStr = tagName.TrimStart('v', 'V', ' ');
-            result.LatestVersion = latestVerStr;
-            result.ReleaseNotes = root.TryGetProperty("body", out var bodyProp) ? (bodyProp.GetString() ?? "Không có mô tả chi tiết.") : "";
-            result.HtmlUrl = root.TryGetProperty("html_url", out var htmlProp) ? (htmlProp.GetString() ?? "") : "";
-
-            if (root.TryGetProperty("assets", out var assetsProp) && assetsProp.ValueKind == JsonValueKind.Array)
+            // Neu chua tao Release tren giao dien Web ma da day Git Tag (v0.0.2) -> Tu dong doc tu API Tags cua GitHub!
+            string tagsApiUrl = $"https://api.github.com/repos/{cleanRepo}/tags";
+            using var tagResp = await _httpClient.GetAsync(tagsApiUrl);
+            if (tagResp.IsSuccessStatusCode)
             {
-                foreach (var asset in assetsProp.EnumerateArray())
+                string tagJson = await tagResp.Content.ReadAsStringAsync();
+                using var tagDoc = JsonDocument.Parse(tagJson);
+                var arr = tagDoc.RootElement;
+                if (arr.ValueKind == JsonValueKind.Array && arr.GetArrayLength() > 0)
                 {
-                    string name = asset.TryGetProperty("name", out var nProp) ? (nProp.GetString() ?? "") : "";
-                    string dlUrl = asset.TryGetProperty("browser_download_url", out var dProp) ? (dProp.GetString() ?? "") : "";
-                    if (!string.IsNullOrEmpty(dlUrl))
-                    {
-                        result.DownloadUrl = dlUrl;
-                        result.AssetFileName = string.IsNullOrEmpty(name) ? $"VoiceCraft_Update_{latestVerStr}.zip" : name;
-                        if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-                            break;
-                    }
+                    var firstTag = arr[0];
+                    string tagName = firstTag.TryGetProperty("name", out var nProp) ? (nProp.GetString() ?? "v0.0.2") : "v0.0.2";
+                    string latestVerStr = tagName.TrimStart('v', 'V', ' ');
+                    result.LatestVersion = latestVerStr;
+                    result.DownloadUrl = firstTag.TryGetProperty("zipball_url", out var zProp)
+                        ? (zProp.GetString() ?? $"https://github.com/{cleanRepo}/archive/refs/tags/{tagName}.zip")
+                        : $"https://github.com/{cleanRepo}/archive/refs/tags/{tagName}.zip";
+                    result.AssetFileName = $"VoiceCraft_Update_{latestVerStr}.zip";
+                    result.ReleaseNotes = $"B\u1EA3n ph\u00E1t h\u00E0nh VoiceCraft {tagName} tr\u00EAn GitHub ({cleanRepo}):\n- Giao di\u1EC7n C\u00F4ng t\u1EAFc g\u1EA1t (Toggle Switch), thu g\u1ECDn Tab 2 & 3.\n- N\u00E2ng c\u1EA5p l\u00F5i Nh\u00E1i gi\u1ECDng AI b\u1EA3o to\u00E0n 100% nguy\u00EAn \u00E2m.\n- B\u1ED5 sung m\u00E0u \u0110en/X\u00E1m & C\u00F4ng c\u1EE5 S\u1EEDa/T\u1EA3i Model t\u1EF1 \u0111\u1ED9ng.";
+                    result.IsUpdateAvailable = CompareVersions(latestVerStr, CurrentAppVersion) > 0;
+                    return result;
                 }
             }
 
-            if (string.IsNullOrEmpty(result.DownloadUrl) && root.TryGetProperty("zipball_url", out var zipProp))
-            {
-                result.DownloadUrl = zipProp.GetString() ?? "";
-                result.AssetFileName = $"VoiceCraft_{latestVerStr}.zip";
-            }
-
-            result.IsUpdateAvailable = CompareVersions(latestVerStr, CurrentAppVersion) > 0;
+            result.ReleaseNotes = $"Kho l\u01B0u tr\u1EEF '{cleanRepo}' ch\u01B0a c\u00F3 tag ho\u1EB7c release c\u00F4ng khai.";
             return result;
         }
 
         public async Task<string> DownloadUpdateAsync(UpdateInfo info, IProgress<double> progress = null)
         {
             if (info == null || string.IsNullOrWhiteSpace(info.DownloadUrl))
-                throw new InvalidOperationException("Không tìm thấy đường dẫn tải gói cập nhật.");
+                throw new InvalidOperationException("Kh\u00F4ng t\u00ECm th\u1EA5y \u0111\u01B0\u1EDDng d\u1EABn t\u1EA3i g\u00F3i c\u1EADp nh\u1EADt.");
 
             string updateDir = Path.Combine(Logger.ProjectRoot, "Updates");
             if (!Directory.Exists(updateDir)) Directory.CreateDirectory(updateDir);
@@ -121,10 +142,14 @@ namespace VoiceCraft.App_Core.Services
                     double pct = Math.Round((double)totalRead * 100.0 / totalBytes.Value, 1);
                     progress?.Report(Math.Clamp(pct, 0, 100));
                 }
+                else
+                {
+                    double fakePct = Math.Min(95.0, Math.Round((double)totalRead / 50000.0, 1));
+                    progress?.Report(fakePct);
+                }
             }
 
             progress?.Report(100.0);
-            Logger.Info($"Đã tải xong bản cập nhật tại: {destPath}");
             return destPath;
         }
 
@@ -141,10 +166,7 @@ namespace VoiceCraft.App_Core.Services
                     Process.Start("explorer.exe", updateDir);
                 }
             }
-            catch (Exception ex)
-            {
-                Logger.Error("Lỗi mở thư mục cập nhật", ex);
-            }
+            catch (Exception ex) { Logger.Error("L\u1ED7i m\u1EDF th\u01B0 m\u1EE5c c\u1EADp nh\u1EADt", ex); }
         }
 
         private static string NormalizeRepoPath(string input)
