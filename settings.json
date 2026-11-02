@@ -1,0 +1,54 @@
+{
+  "SelectedAeroTheme": "X\u00E1m B\u1EA1c Hi\u1EC7n \u0110\u1EA1i (Frosted Slate)",
+  "SelectedAccentItem": "Xanh Ng\u1ECDc L\u1EE5c B\u1EA3o (#10B981)",
+  "SelectedWaveformColorItem": "Cam Ho\u00E0ng H\u00F4n (#FB923C)",
+  "SelectedSecondaryLineColorItem": "V\u00E0ng Tia Ch\u1EDBp (#FFD600)",
+  "GlassOpacity": 1,
+  "CardOpacity": 0.95,
+  "ShowAeroReflection": false,
+  "SelectedVoice": "Song ng\u1EEF Vi\u1EC7t - Anh (T\u1EF1 \u0111\u1ED9ng)",
+  "SelectedModelFile": "[Multilingual-24kHz] en-US-BrianMultilingualNeural (Nam Tr\u1EA7m Vi\u1EC7t\u002BAnh \u0110\u1ED3ng Nh\u1EA5t)",
+  "SpeakerId": 46,
+  "BypassDsp": false,
+  "SelectedGender": "N\u1EEF (Female)",
+  "BilingualAuto": true,
+  "SingleVoiceMode": true,
+  "AutoPlayAudio": true,
+  "Speed": 1,
+  "Pitch": 1,
+  "Volume": 100,
+  "IsVoiceCloneEnabled": false,
+  "CloneReferencePath": "C:\\Users\\LONGTYGU\\Desktop\\AI music\\T\u00E0n Phai.wav",
+  "CloneStrength": 0.8,
+  "EqBassDb": 0,
+  "EqTrebleDb": 0,
+  "DeHissCutoff": 10000,
+  "VitsNoiseScale": 0.67,
+  "ModelProfiles": {
+    "[Multilingual-24kHz] en-US-AndrewMultilingualNeural (Nam \u0110\u1ECDc Vi\u1EC7t\u002BAnh \u0110\u1ED3ng Nh\u1EA5t)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 0,
+      "EqTrebleDb": 0,
+      "DeHissCutoff": 10000,
+      "VitsNoiseScale": 0.67
+    },
+    "T\u1EF1 \u0111\u1ED9ng theo v\u00F9ng mi\u1EC1n (Auto)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 0,
+      "EqTrebleDb": 0,
+      "DeHissCutoff": 10000,
+      "VitsNoiseScale": 0.67
+    },
+    "[VieNeu-TTS-24kHz] Gi\u1ECDng N\u1EEF Truy\u1EC1n C\u1EA3m (Vietnamese Neural Prosody)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 2,
+      "EqTrebleDb": 1.5,
+      "DeHissCutoff": 10500,
+      "VitsNoiseScale": 0.67
+    }
+  },
+  "GitHubRepo": "Longtygu/VoiceCraft"
+}

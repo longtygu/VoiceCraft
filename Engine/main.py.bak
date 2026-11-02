@@ -1,0 +1,451 @@
+import sys
+import os
+import re
+import io
+import wave
+import asyncio
+import numpy as np
+import uvicorn
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from fastapi.responses import FileResponse
+from piper import PiperVoice
+
+class DummyStream:
+    def write(self, data): pass
+    def flush(self): pass
+    def isatty(self): return False
+
+if sys.stdout is None:
+    sys.stdout = DummyStream()
+if sys.stderr is None:
+    sys.stderr = DummyStream()
+
+try:
+    from piper.config import SynthesisConfig
+    HAS_SYNTH_CONFIG = True
+except ImportError:
+    HAS_SYNTH_CONFIG = False
+
+app = FastAPI(title="VoiceCraft Bilingual Engine v2.5")
+
+class TTSRequest(BaseModel):
+    text: str
+    voice_id: str = "Song ngữ Việt - Anh (Tự động)"
+    gender: str = "Nữ (Female)"
+    speed: float = 1.0
+    pitch: float = 1.0
+    bilingual_auto: bool = True
+
+def resolve_directories():
+    models_env = os.environ.get("VOICECRAFT_MODELS_DIR")
+    output_env = os.environ.get("VOICECRAFT_OUTPUT_DIR")
+    if models_env and output_env:
+        return models_env, output_env
+
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(sys.executable)
+        root_dir = os.path.abspath(os.path.join(exe_dir, "..", "..", ".."))
+    else:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        root_dir = os.path.abspath(os.path.join(script_dir, ".."))
+
+    return os.path.join(root_dir, "Models"), os.path.join(root_dir, "Output")
+
+models_dir, output_dir = resolve_directories()
+os.makedirs(models_dir, exist_ok=True)
+os.makedirs(output_dir, exist_ok=True)
+
+loaded_voices = {}
+
+VI_DIACRITIC_RE = re.compile(
+    r"[àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ"
+    r"ÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴĐ]"
+)
+
+# Cấu trúc âm tiết Tiếng Việt chuẩn
+VI_SYLLABLE_RE = re.compile(
+    r"^(ngh|ng|nh|ch|gh|gi|kh|ph|qu|th|tr|[bcdgklmnpqrstvx])?"
+    r"([aeiouy]{1,3})"
+    r"(ng|nh|ch|[cmnpt])?$",
+    re.IGNORECASE
+)
+
+COMMON_EN_WORDS = {
+    "the", "and", "for", "with", "from", "that", "this", "have", "has", "had",
+    "not", "are", "was", "were", "will", "would", "could", "should", "can",
+    "may", "might", "must", "shall", "about", "into", "over", "after", "under",
+    "between", "through", "during", "before", "without", "within", "along",
+    "hello", "hi", "welcome", "studio", "voice", "craft", "voicecraft", "windows",
+    "microsoft", "visual", "code", "python", "system", "audio", "sound", "music",
+    "player", "engine", "model", "models", "setting", "settings", "update", "version",
+    "pro", "max", "plus", "ultra", "mini", "air", "cloud", "server", "client",
+    "api", "fastapi", "piper", "onnx", "runtime", "timeline", "fluent", "aero",
+    "glass", "theme", "color", "speed", "pitch", "volume", "male", "female",
+    "english", "vietnam", "vietnamese", "auto", "mode", "file", "files", "folder",
+    "output", "input", "text", "speech", "offline", "online", "app", "application",
+    "software", "hardware", "cpu", "gpu", "cuda", "ram", "ssd", "usb", "web",
+    "net", "core", "framework", "desktop", "laptop", "mobile", "phone", "smart",
+    "ai", "artificial", "intelligence", "deep", "learning", "neural", "network"
+}
+
+def is_english_word(word: str) -> bool:
+    clean = re.sub(r"[^a-zA-Z]", "", word)
+    if not clean or len(clean) <= 1:
+        return False
+    if VI_DIACRITIC_RE.search(word):
+        return False
+
+    low = clean.lower()
+    if low in COMMON_EN_WORDS:
+        return True
+
+    if re.search(r"[fjwz]", low):
+        return True
+
+    if len(clean) >= 3 and any(c.isupper() for c in clean[1:]) and any(c.islower() for c in clean):
+        return True
+
+    if re.search(r"(tion|sion|ment|ness|ship|able|ible|ance|ence|ight|ough|ould|ing|ed|ly|er|or|est|ful|less|ous|ive|al|ic|st|sp|sk|sl|sm|sn|sw|pr|pl|br|bl|cr|cl|dr|fr|fl|gr|gl|sh|wh|ck|ll|ss|tt|ff|pp|dd|gg|mm|rr|ld|nd|rk|rt|lt|mp|nt|nk|ft|ct|pt|xt)$", low):
+        if not VI_SYLLABLE_RE.match(low):
+            return True
+
+    if re.search(r"^(st|sp|sk|sl|sm|sn|sw|pr|pl|br|bl|cr|cl|dr|fr|fl|gr|gl|sc|sh|wh|tw|dw|str|spr|spl|scr|thr|chr)", low):
+        return True
+
+    if not VI_SYLLABLE_RE.match(low):
+        return True
+
+    return False
+
+def split_bilingual_segments(text: str):
+    """
+    Tách văn bản thành các phân đoạn (lang, subtext, is_clause_end).
+    Giữ dấu câu đi kèm từng phân đoạn để đồng bộ nhịp nghỉ tự nhiên giữa Tiếng Việt và Tiếng Anh.
+    """
+    clauses = re.split(r"([.!?;:\n]+)", text)
+    raw_clauses = []
+    for i in range(0, len(clauses), 2):
+        c_text = clauses[i]
+        c_punct = clauses[i + 1] if (i + 1) < len(clauses) else ""
+        if c_text.strip():
+            raw_clauses.append((c_text.strip(), c_punct))
+
+    if not raw_clauses:
+        return [("vi", text, True)]
+
+    final_segments = []
+
+    for clause_text, clause_punct in raw_clauses:
+        tokens = re.findall(r"\s+|[^\s]+", clause_text)
+        classified = []
+        for tok in tokens:
+            if tok.isspace():
+                classified.append(("space", tok))
+            else:
+                lang = "en" if is_english_word(tok) else "vi"
+                classified.append((lang, tok))
+
+        sub_segs = []
+        curr_lang = None
+        curr_buf = []
+
+        for kind, tok in classified:
+            if kind == "space":
+                curr_buf.append(tok)
+            else:
+                if curr_lang is None:
+                    curr_lang = kind
+                    curr_buf.append(tok)
+                elif kind == curr_lang:
+                    curr_buf.append(tok)
+                else:
+                    seg_str = "".join(curr_buf).strip()
+                    if seg_str:
+                        sub_segs.append([curr_lang, seg_str, False])
+                    curr_lang = kind
+                    curr_buf = [tok]
+
+        if curr_buf:
+            seg_str = "".join(curr_buf).strip()
+            if seg_str:
+                sub_segs.append([curr_lang or "vi", seg_str, False])
+
+        if sub_segs:
+            sub_segs[-1][1] = sub_segs[-1][1] + clause_punct
+            sub_segs[-1][2] = True
+            for s in sub_segs:
+                final_segments.append((s[0], s[1], s[2]))
+
+    return final_segments if final_segments else [("vi", text, True)]
+
+def list_valid_onnx():
+    if not os.path.exists(models_dir):
+        return []
+    return [
+        f for f in os.listdir(models_dir)
+        if f.endswith(".onnx") and os.path.getsize(os.path.join(models_dir, f)) > 1000000
+    ]
+
+def pick_model_info(lang: str, voice_id: str, gender: str):
+    """
+    Trả về (model_path, speaker_id, gender_pitch_factor).
+    Khắc phục triệt để lỗi méo tiếng ở giọng Miền Trung (25hours) và Miền Nam (vivos).
+    """
+    onnx_files = list_valid_onnx()
+    if not onnx_files:
+        raise FileNotFoundError(f"Chưa có model .onnx trong thư mục {models_dir}")
+
+    is_male = "Nam (Male)" in gender or "Male" in gender
+
+    if lang == "en":
+        target_prefix = "en_male" if is_male else "en_female"
+        for f in onnx_files:
+            if f.lower().startswith(target_prefix):
+                return os.path.join(models_dir, f), None, 1.0
+        for f in onnx_files:
+            if f.lower().startswith("en_"):
+                shift = 0.90 if (is_male and "female" in f.lower()) else (1.10 if (not is_male and "male" in f.lower()) else 1.0)
+                return os.path.join(models_dir, f), None, shift
+
+    region_key = "bac_"
+    if "Trung" in voice_id:
+        region_key = "trung_"
+    elif "Miền Nam" in voice_id:
+        region_key = "nam_"
+
+    chosen = None
+    for f in onnx_files:
+        if f.lower().startswith(region_key):
+            chosen = os.path.join(models_dir, f)
+            break
+
+    if not chosen:
+        for f in onnx_files:
+            if "vi_vn" in f.lower():
+                chosen = os.path.join(models_dir, f)
+                break
+
+    if not chosen:
+        chosen = os.path.join(models_dir, onnx_files[0])
+
+    fname = os.path.basename(chosen).lower()
+
+    if "vivos" in fname:
+        # VIVOS là model đa người nói (65 giọng Nam & Nữ thật trong tập dữ liệu):
+        # Dùng đúng speaker_id gốc thay vì ép hạ tần số làm méo âm sắc
+        spk_id = 2 if is_male else 0
+        return chosen, spk_id, 1.0
+    elif "25hours" in fname:
+        # 25hours_single-low là giọng trầm ấm sẵn ở tần số 16kHz:
+        shift = 0.93 if is_male else 1.0
+        return chosen, None, shift
+    else:
+        # vais1000-medium (22050Hz):
+        shift = 0.88 if is_male else 1.0
+        return chosen, None, shift
+
+def load_cached_voice(model_path: str) -> PiperVoice:
+    if model_path not in loaded_voices:
+        loaded_voices[model_path] = PiperVoice.load(model_path)
+    return loaded_voices[model_path]
+
+def fft_resample(samples: np.ndarray, new_len: int) -> np.ndarray:
+    """
+    Nội suy phổ tần số Fourier (Band-limited Whittaker-Shannon Sinc Resampling).
+    Loại bỏ 100% hiện tượng méo tiếng / răng cưa kim loại (aliasing) khi chuyển từ 16000Hz lên 22050Hz.
+    """
+    old_len = samples.size
+    if old_len == new_len or old_len < 4 or new_len < 4:
+        return samples
+    spectrum = np.fft.rfft(samples)
+    resampled = np.fft.irfft(spectrum, n=new_len) * (float(new_len) / float(old_len))
+    return resampled.astype(np.float32)
+
+def trim_and_normalize_segment(samples: np.ndarray, sr: int, is_bilingual_subsegment: bool) -> np.ndarray:
+    """
+    Cắt khoảng lặng thừa ở đầu/cuối do Piper sinh ra khi ghép câu song ngữ,
+    áp dụng đường bao Cosine (Fade-in/Fade-out 12ms) chống bụp tiếng và cân bằng độ to RMS.
+    """
+    if samples.size == 0:
+        return samples
+
+    samples = samples - np.mean(samples)
+
+    abs_s = np.abs(samples)
+    peak = np.max(abs_s)
+    if peak < 80.0:
+        return np.zeros(int(sr * 0.05), dtype=np.float32)
+
+    thresh = max(180.0, peak * 0.025)
+    active_idx = np.where(abs_s > thresh)[0]
+
+    if active_idx.size > 0:
+        pad = int(sr * (0.018 if is_bilingual_subsegment else 0.035))
+        start = max(0, int(active_idx[0]) - pad)
+        end = min(samples.size, int(active_idx[-1]) + pad)
+        samples = samples[start:end]
+
+    active_voiced = samples[np.abs(samples) > (peak * 0.05)]
+    if active_voiced.size > 50:
+        rms = float(np.sqrt(np.mean(np.square(active_voiced))))
+        if rms > 10.0:
+            target_rms = 4600.0
+            gain = min(3.2, max(0.35, target_rms / rms))
+            samples = samples * gain
+
+    max_after = np.max(np.abs(samples))
+    if max_after > 28500.0:
+        samples = samples * (28500.0 / max_after)
+
+    fade_len = min(int(sr * 0.012), samples.size // 4)
+    if fade_len > 4:
+        fade_in = np.linspace(0.0, 1.0, fade_len, dtype=np.float32)
+        fade_out = np.linspace(1.0, 0.0, fade_len, dtype=np.float32)
+        samples[:fade_len] *= fade_in
+        samples[-fade_len:] *= fade_out
+
+    return samples
+
+def synthesize_segment_pcm(
+    voice: PiperVoice,
+    text: str,
+    speed: float,
+    effective_pitch: float,
+    speaker_id=None,
+    target_sr: int = 22050,
+    is_bilingual_subsegment: bool = False
+) -> np.ndarray:
+    speed = max(0.25, min(3.0, speed))
+    effective_pitch = max(0.5, min(2.0, effective_pitch))
+
+    # Bảo toàn nguyên vẹn cấu hình nội suy gốc của từng Model (đặc biệt cho 25hours và vivos)
+    base_len_scale = float(getattr(voice.config, "length_scale", 1.0) or 1.0)
+    base_noise_scale = float(getattr(voice.config, "noise_scale", 0.667) or 0.667)
+    base_noise_w = float(getattr(voice.config, "noise_w", 0.8) or 0.8)
+
+    vits_length_scale = base_len_scale * (effective_pitch / speed)
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(voice.config.sample_rate)
+
+        if hasattr(voice, "synthesize_wav") and HAS_SYNTH_CONFIG:
+            try:
+                syn_cfg = SynthesisConfig(
+                    speaker_id=speaker_id,
+                    length_scale=vits_length_scale,
+                    noise_scale=base_noise_scale,
+                    noise_w_scale=base_noise_w
+                )
+            except TypeError:
+                syn_cfg = SynthesisConfig(
+                    speaker_id=speaker_id,
+                    length_scale=vits_length_scale
+                )
+            voice.synthesize_wav(text, wav_file, syn_config=syn_cfg)
+        else:
+            try:
+                voice.synthesize(
+                    text,
+                    wav_file,
+                    speaker_id=speaker_id,
+                    length_scale=vits_length_scale,
+                    noise_scale=base_noise_scale,
+                    noise_w=base_noise_w
+                )
+            except TypeError:
+                try:
+                    voice.synthesize(text, wav_file, length_scale=vits_length_scale)
+                except TypeError:
+                    voice.synthesize(text, wav_file)
+
+    buf.seek(0)
+    with wave.open(buf, "rb") as wav_in:
+        src_sr = wav_in.getframerate()
+        raw_bytes = wav_in.readframes(wav_in.getnframes())
+
+    samples = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32)
+    if samples.size == 0:
+        return np.zeros(int(target_sr * 0.05), dtype=np.int16)
+
+    resample_ratio = (float(target_sr) / float(src_sr)) / effective_pitch
+    if abs(resample_ratio - 1.0) > 0.003:
+        new_len = max(1, int(round(samples.size * resample_ratio)))
+        samples = fft_resample(samples, new_len)
+
+    samples = trim_and_normalize_segment(samples, target_sr, is_bilingual_subsegment)
+    return np.clip(samples, -32767, 32767).astype(np.int16)
+
+def build_full_audio(req: TTSRequest, out_path: str):
+    target_sr = 22050
+    is_english_only = "English" in req.voice_id
+    use_bilingual = req.bilingual_auto or ("Song ngữ" in req.voice_id)
+
+    if is_english_only:
+        segments = [("en", req.text, True)]
+    elif use_bilingual:
+        segments = split_bilingual_segments(req.text)
+    else:
+        segments = [("vi", req.text, True)]
+
+    is_multi_seg = len(segments) > 1
+    all_chunks = []
+
+    pause_word = np.zeros(int(target_sr * 0.022), dtype=np.int16)
+    pause_clause = np.zeros(int(target_sr * 0.160), dtype=np.int16)
+
+    for lang, seg_text, is_clause_end in segments:
+        if not seg_text.strip():
+            continue
+        model_path, speaker_id, gender_factor = pick_model_info(lang, req.voice_id, req.gender)
+        voice = load_cached_voice(model_path)
+
+        seg_speed = req.speed * (0.94 if (lang == "en" and is_multi_seg) else 1.0)
+        effective_pitch = req.pitch * gender_factor
+
+        pcm = synthesize_segment_pcm(
+            voice=voice,
+            text=seg_text,
+            speed=seg_speed,
+            effective_pitch=effective_pitch,
+            speaker_id=speaker_id,
+            target_sr=target_sr,
+            is_bilingual_subsegment=is_multi_seg
+        )
+        all_chunks.append(pcm)
+        all_chunks.append(pause_clause if is_clause_end else pause_word)
+
+    if not all_chunks:
+        final_pcm = np.zeros(int(target_sr * 0.5), dtype=np.int16)
+    else:
+        final_pcm = np.concatenate(all_chunks)
+
+    with wave.open(out_path, "wb") as wav_out:
+        wav_out.setnchannels(1)
+        wav_out.setsampwidth(2)
+        wav_out.setframerate(target_sr)
+        wav_out.writeframes(final_pcm.tobytes())
+
+@app.get("/ping")
+async def ping():
+    return {"status": "ready", "models": list_valid_onnx()}
+
+@app.post("/synthesize")
+async def synthesize(req: TTSRequest):
+    try:
+        file_path = os.path.join(output_dir, "temp_output.wav")
+        await asyncio.to_thread(build_full_audio, req, file_path)
+        return FileResponse(file_path, media_type="audio/wav", filename="output.wav")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def main():
+    config = uvicorn.Config(app=app, host="127.0.0.1", port=8000, log_config=None, access_log=False, use_colors=False)
+    server = uvicorn.Server(config)
+    await server.serve()
+
+if __name__ == "__main__":
+    asyncio.run(main())

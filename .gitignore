@@ -1,0 +1,42 @@
+# Visual Studio & .NET Build Artifacts
+.vs/
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Python & PyInstaller Artifacts
+Engine/build/
+Engine/dist/
+Engine/__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# Runtime Logs, Temp Outputs & Auto-Update Packages
+Logs/
+Output/*.wav
+Updates/
+Dump.txt
+VoiceCraft_Dump.txt
+
+# AI Voice Models & Caches (Avoid GitHub 100MB file limit)
+Models/*.onnx
+Models/*.onnx.json
+Models/*.bin
+Models/*.pt
+Models/*.pth
+Models/*.safetensors
+Models/kokoro_24k/
+Models/mms_vie_male/
+Models/neural_cache/
+Models/voice_samples/
+
+# Keep C# source file inside Models folder
+!Models/HistoryItem.cs

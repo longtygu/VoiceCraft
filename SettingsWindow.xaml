@@ -1,0 +1,140 @@
+<Window x:Class="VoiceCraft.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="VoiceCraft - Cài đặt &amp; Cập nhật" Height="650" Width="820"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+
+    <Border Background="{Binding WindowGlassBrush}" CornerRadius="6" BorderThickness="1" BorderBrush="{Binding WindowBorderBrush}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="42"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- LỚP KÍNH PHẢN CHIẾU MỜ KIỂU WINDOWS 7 -->
+            <Polygon Grid.Row="0" Grid.RowSpan="2" Points="0,0 450,0 240,650 0,650" IsHitTestVisible="False"
+                     Visibility="{Binding AeroReflectionVisibility}">
+                <Polygon.Fill>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#14FFFFFF" Offset="0.0"/>
+                        <GradientStop Color="#05FFFFFF" Offset="0.5"/>
+                        <GradientStop Color="#00FFFFFF" Offset="1.0"/>
+                    </LinearGradientBrush>
+                </Polygon.Fill>
+            </Polygon>
+
+            <!-- THANH TIÊU ĐỀ RIÊNG CHO CỬA SỔ CÀI ĐẶT -->
+            <Border Grid.Row="0" Background="#24000000" BorderBrush="#28FFFFFF" BorderThickness="0,0,0,1"
+                    CornerRadius="6,6,0,0" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                <Grid>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                        <TextBlock Text="⚙️ Cài đặt hệ thống &amp; Giao diện VoiceCraft" Foreground="White" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                        <Border Background="#20FFFFFF" CornerRadius="3" Padding="8,1" Margin="12,0,0,0" BorderBrush="#28FFFFFF" BorderThickness="1">
+                            <TextBlock Text="{Binding AppVersion, StringFormat={}v{0}}" Foreground="#D8ECFF" FontSize="11.5"/>
+                        </Border>
+                    </StackPanel>
+                    <Button Content="✕" Width="46" HorizontalAlignment="Right" Background="Transparent" Foreground="#D0DCE8" FontSize="13" BorderThickness="0" Click="Close_Click">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="#E81123"/>
+                                        <Setter Property="Foreground" Value="White"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </Grid>
+            </Border>
+
+            <!-- NỘI DUNG CÀI ĐẶT (2 CỘT: GIAO DIỆN & GITHUB UPDATE) -->
+            <Grid Grid.Row="1" Margin="16,14,16,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- CỘT 1: TUỲ CHỈNH MÀU SẮC & GIAO DIỆN -->
+                <Border Grid.Column="0" Background="{Binding CardGlassBrush}" CornerRadius="4" Padding="16" BorderBrush="#30FFFFFF" BorderThickness="1" Margin="0,0,8,0">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <TextBlock Text="🎨 TUỲ CHỈNH MÀU SẮC &amp; GIAO DIỆN" Foreground="{Binding AccentBrush}" FontWeight="Bold" FontSize="12.5" Margin="0,0,0,12"/>
+
+                            <TextBlock Text="1. Tông màu nền kính (Glass Tint):" Foreground="#E6F2FF" FontSize="12" Margin="0,0,0,4"/>
+                            <ComboBox ItemsSource="{Binding AeroThemes}" SelectedItem="{Binding SelectedAeroTheme}" Margin="0,0,0,12"/>
+
+                            <TextBlock Text="2. Màu nhấn chủ đạo (Accent Color):" Foreground="#E6F2FF" FontSize="12" Margin="0,0,0,4"/>
+                            <ComboBox ItemsSource="{Binding AccentColorList}" SelectedItem="{Binding SelectedAccentItem}" Margin="0,0,0,12"/>
+
+                            <TextBlock Text="3. Màu sóng âm thanh (Waveform):" Foreground="#E6F2FF" FontSize="12" Margin="0,0,0,4"/>
+                            <ComboBox ItemsSource="{Binding WaveformColorList}" SelectedItem="{Binding SelectedWaveformColorItem}" Margin="0,0,0,12"/>
+
+                            <TextBlock Text="4. Màu vạch phụ tương tác (Cursor):" Foreground="#E6F2FF" FontSize="12" Margin="0,0,0,4"/>
+                            <ComboBox ItemsSource="{Binding SecondaryLineColorList}" SelectedItem="{Binding SelectedSecondaryLineColorItem}" Margin="0,0,0,12"/>
+
+                            <Grid Margin="0,0,0,3">
+                                <TextBlock Text="5. Độ trong suốt cửa sổ chính:" Foreground="#E6F2FF" FontSize="12"/>
+                                <TextBlock Text="{Binding GlassOpacityPercent}" Foreground="{Binding AccentBrush}" FontWeight="Bold" FontSize="12" HorizontalAlignment="Right"/>
+                            </Grid>
+                            <Slider Minimum="0.25" Maximum="1.0" Value="{Binding GlassOpacity}" TickFrequency="0.05" Margin="0,0,0,10"/>
+
+                            <Grid Margin="0,0,0,3">
+                                <TextBlock Text="6. Độ trong suốt khung panel:" Foreground="#E6F2FF" FontSize="12"/>
+                                <TextBlock Text="{Binding CardOpacityPercent}" Foreground="{Binding AccentBrush}" FontWeight="Bold" FontSize="12" HorizontalAlignment="Right"/>
+                            </Grid>
+                            <Slider Minimum="0.15" Maximum="0.95" Value="{Binding CardOpacity}" TickFrequency="0.05" Margin="0,0,0,10"/>
+
+                            <CheckBox IsChecked="{Binding ShowAeroReflection}" Foreground="#E6F2FF" FontSize="12" Margin="0,2,0,4"
+                                      Content="Bật lớp phản chiếu gương chéo Win7"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Border>
+
+                <!-- CỘT 2: QUẢN LÝ ENGINE & GITHUB AUTO-UPDATE -->
+                <Border Grid.Column="1" Background="{Binding CardGlassBrush}" CornerRadius="4" Padding="16" BorderBrush="#30FFFFFF" BorderThickness="1" Margin="8,0,0,0">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <TextBlock Text="⚙️ QUẢN LÝ ENGINE &amp; CẬP NHẬT" Foreground="{Binding AccentBrush}" FontWeight="Bold" FontSize="12.5" Margin="0,0,0,12"/>
+
+                            <UniformGrid Columns="2" Rows="2" Height="78" Margin="0,0,0,12">
+                                <Button Content="Khởi động lại Engine" Command="{Binding RestartEngineCommand}" Style="{StaticResource FlatGlassBtn}" Margin="0,0,4,6"/>
+                                <Button Content="Mở thư mục Models" Command="{Binding OpenFolderCommand}" CommandParameter="Models" Style="{StaticResource FlatGlassBtn}" Margin="4,0,0,6"/>
+                                <Button Content="Mở thư mục Output" Command="{Binding OpenFolderCommand}" CommandParameter="Output" Style="{StaticResource FlatGlassBtn}" Margin="0,0,4,0"/>
+                                <Button Content="Mở thư mục Updates" Command="{Binding OpenFolderCommand}" CommandParameter="Updates" Style="{StaticResource FlatGlassBtn}" Margin="4,0,0,0"/>
+                            </UniformGrid>
+
+                            <Separator Background="#28FFFFFF" Margin="0,2,0,12"/>
+
+                            <!-- KHU VỰC GITHUB AUTO-UPDATE -->
+                            <TextBlock Text="🚀 CẬP NHẬT PHẦN MỀM (GITHUB)" Foreground="{Binding AccentBrush}" FontWeight="Bold" FontSize="12" Margin="0,0,0,6"/>
+                            <TextBlock Text="Đường dẫn GitHub Repo (Owner/Repo):" Foreground="#D0E8FF" FontSize="11.5" Margin="0,0,0,3"/>
+                            <TextBox Text="{Binding GitHubRepo, UpdateSourceTrigger=PropertyChanged}" Height="28" Background="#330A121E" Foreground="White" BorderBrush="#30FFFFFF" BorderThickness="1" Padding="6,4" FontSize="12" Margin="0,0,0,8"/>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <Button Content="Kiểm tra cập nhật" Command="{Binding CheckUpdateCommand}" Style="{StaticResource FlatPrimaryBtn}" Width="135" Height="30" Margin="0,0,8,0"/>
+                                <Button Content="Tải bản mới" Command="{Binding DownloadUpdateCommand}" Style="{StaticResource FlatGlassBtn}" Width="110" Height="30"/>
+                            </StackPanel>
+
+                            <TextBlock Text="{Binding UpdateStatusText}" Foreground="#E0F2FE" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
+
+                            <!-- Thanh tiến trình tải Update -->
+                            <Grid Visibility="{Binding UpdateProgressVisibility}" Margin="0,0,0,8">
+                                <ProgressBar Value="{Binding UpdateProgress}" Maximum="100" Height="14" Background="#33000000" Foreground="{Binding AccentBrush}" BorderBrush="#30FFFFFF" BorderThickness="1"/>
+                                <TextBlock Text="{Binding UpdateProgressPercent}" Foreground="White" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <TextBlock Text="Nội dung bản phát hành (Changelog):" Foreground="#B0C8E0" FontSize="11" Margin="0,0,0,3"/>
+                            <Border Background="#40060C14" CornerRadius="3" Height="70" Padding="6" BorderBrush="#20FFFFFF" BorderThickness="1">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <TextBlock Text="{Binding UpdateChangelog}" Foreground="#D8ECFF" FontSize="11" TextWrapping="Wrap" FontFamily="Consolas"/>
+                                </ScrollViewer>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Border>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>
