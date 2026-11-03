@@ -24,7 +24,8 @@ namespace VoiceCraft.App_Core.Services
 
     public class UpdateService : IDisposable
     {
-        public const string CurrentAppVersion = "1.0.1";
+        public const string CurrentAppVersion = "1.0.2";
+        public const string LockedGitHubRepoUrl = "https://github.com/longtygu/VoiceCraft";
         private readonly HttpClient _httpClient;
 
         public UpdateService()
@@ -34,16 +35,13 @@ namespace VoiceCraft.App_Core.Services
             _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         }
 
-        public async Task<UpdateInfo> CheckForUpdatesAsync(string repoPath)
+        public async Task<UpdateInfo> CheckForUpdatesAsync(string repoPath = null)
         {
             var result = new UpdateInfo { CurrentVersion = CurrentAppVersion, LatestVersion = CurrentAppVersion };
-            if (string.IsNullOrWhiteSpace(repoPath))
-                throw new ArgumentException("Vui l\u00F2ng nh\u1EADp \u0111\u01B0\u1EDDng d\u1EABn GitHub Repo (\u0111\u1ECBnh d\u1EA1ng: Owner/Repo).");
-
-            string cleanRepo = NormalizeRepoPath(repoPath);
+            string cleanRepo = "longtygu/VoiceCraft";
             string releaseApiUrl = $"https://api.github.com/repos/{cleanRepo}/releases/latest";
 
-            Logger.Info($"Ki\u1EC3m tra c\u1EADp nh\u1EADt GitHub t\u1EA1i: {releaseApiUrl}");
+            Logger.Info($"Kiểm tra cập nhật GitHub tại: {releaseApiUrl}");
             using var response = await _httpClient.GetAsync(releaseApiUrl);
 
             if (response.IsSuccessStatusCode)
@@ -92,38 +90,34 @@ namespace VoiceCraft.App_Core.Services
                 if (arr.ValueKind == JsonValueKind.Array && arr.GetArrayLength() > 0)
                 {
                     var firstTag = arr[0];
-                    string tagName = firstTag.TryGetProperty("name", out var nProp) ? (nProp.GetString() ?? "v1.0.1") : "v1.0.1";
+                    string tagName = firstTag.TryGetProperty("name", out var nProp) ? (nProp.GetString() ?? "v1.0.2") : "v1.0.2";
                     string latestVerStr = tagName.TrimStart('v', 'V', ' ');
                     result.LatestVersion = latestVerStr;
                     result.DownloadUrl = firstTag.TryGetProperty("zipball_url", out var zProp)
                         ? (zProp.GetString() ?? $"https://github.com/{cleanRepo}/archive/refs/tags/{tagName}.zip")
                         : $"https://github.com/{cleanRepo}/archive/refs/tags/{tagName}.zip";
                     result.AssetFileName = $"VoiceCraft_Update_{latestVerStr}.zip";
-                    result.ReleaseNotes = $"B\u1EA3n c\u1EADp nh\u1EADt VoiceCraft Studio v{latestVerStr}:\n- T\u1EF1 \u0111\u1ED9ng thay th\u1EBF th\u1EB3ng file \u1EE9ng d\u1EE5ng, d\u1ECDn s\u1EA1ch file t\u1EA1m v\u00E0 kh\u1EDFi \u0111\u1ED9ng l\u1EA1i ngay.\n- Kh\u1EAFc ph\u1EE5c tri\u1EC7t \u0111\u1EC3 l\u1ED7i k\u1EBFt n\u1ED1i Engine (127.0.0.1:8000) khi ch\u1EA1y b\u1EA3n Release.";
+                    result.ReleaseNotes = $"Bản cập nhật VoiceCraft Studio v{latestVerStr}:\n- Thanh trạng thái Model sẵn sàng & Cảnh báo lỗi Model nhấp nháy.\n- Khóa cứng đường dẫn GitHub chính thức & Tự động thay thế file trực tiếp.";
                     result.IsUpdateAvailable = CompareVersions(latestVerStr, CurrentAppVersion) > 0;
                     return result;
                 }
             }
 
-            result.ReleaseNotes = $"Kho l\u01B0u tr\u1EEF '{cleanRepo}' hi\u1EC7n \u0111ang \u1EDF phi\u00EAn b\u1EA3n m\u1EDBi nh\u1EA5t (v{CurrentAppVersion}).";
+            result.ReleaseNotes = $"Kho lưu trữ '{cleanRepo}' hiện đang ở phiên bản mới nhất (v{CurrentAppVersion}).";
             return result;
         }
 
-        /// <summary>
-        /// T\u1EA3i g\u00F3i c\u1EADp nh\u1EADt v\u00E0o %TEMP%, gi\u1EA3i n\u00E9n, ghi \u0111\u00E8 th\u1EB3ng v\u00E0o \u1EE9ng d\u1EE5ng \u0111ang ch\u1EA1y,
-        /// x\u00F3a s\u1EA1ch to\u00E0n b\u1ED9 file t\u1EA1m (kh\u00F4ng \u0111\u1EC3 l\u1EA1i r\u00E1c) v\u00E0 t\u1EF1 \u0111\u1ED9ng kh\u1EDFi \u0111\u1ED9ng l\u1EA1i App.
-        /// </summary>
         public async Task DownloadAndApplyUpdateAsync(UpdateInfo info, IProgress<double> progress = null, Action<string> statusCallback = null)
         {
             if (info == null || string.IsNullOrWhiteSpace(info.DownloadUrl))
-                throw new InvalidOperationException("Kh\u00F4ng t\u00ECm th\u1EA5y \u0111\u01B0\u1EDDng d\u1EABn t\u1EA3i b\u1EA3n c\u1EADp nh\u1EADt.");
+                throw new InvalidOperationException("Không tìm thấy đường dẫn tải bản cập nhật.");
 
             string tempRoot = Path.Combine(Path.GetTempPath(), "VoiceCraft_AutoUpdate_" + Guid.NewGuid().ToString("N").Substring(0, 8));
             Directory.CreateDirectory(tempRoot);
             string tempZip = Path.Combine(tempRoot, "update_pkg.zip");
             string extractDir = Path.Combine(tempRoot, "extracted");
 
-            statusCallback?.Invoke($"\u23F3 \u0110ang t\u1EA3i b\u1EA3n c\u1EADp nh\u1EADt v{info.LatestVersion}...");
+            statusCallback?.Invoke($"⏳ Đang tải bản cập nhật v{info.LatestVersion}...");
             using (var response = await _httpClient.GetAsync(info.DownloadUrl, HttpCompletionOption.ResponseHeadersRead))
             {
                 response.EnsureSuccessStatusCode();
@@ -154,11 +148,10 @@ namespace VoiceCraft.App_Core.Services
             }
 
             progress?.Report(92.0);
-            statusCallback?.Invoke("\u26A1 \u0110ang gi\u1EA3i n\u00E9n v\u00E0 chu\u1EA9n b\u1ECB thay th\u1EBF file tr\u1EF1c ti\u1EBFp...");
+            statusCallback?.Invoke("⚡ Đang giải nén và thay thế file trực tiếp...");
             ZipFile.ExtractToDirectory(tempZip, extractDir, true);
-            File.Delete(tempZip); // X\u00F3a ngay file .zip t\u1EA1m sau khi gi\u1EA3i n\u00E9n
+            File.Delete(tempZip);
 
-            // Unwrap th\u01B0 m\u1EE5c con n\u1EBFu l\u00E0 g\u00F3i zipball t\u1EEB GitHub
             string sourceContentDir = extractDir;
             var subDirs = Directory.GetDirectories(extractDir);
             var rootFiles = Directory.GetFiles(extractDir);
@@ -168,8 +161,8 @@ namespace VoiceCraft.App_Core.Services
             }
 
             progress?.Report(100.0);
-            statusCallback?.Invoke("\u2705 \u0110ang t\u1EF1 \u0111\u1ED9ng thay th\u1EBF file, d\u1ECDn r\u00E1c v\u00E0 kh\u1EDFi \u0111\u1ED9ng l\u1EA1i...");
-            await Task.Delay(350);
+            statusCallback?.Invoke("✅ Đang thay thế file, dọn rác và khởi động lại...");
+            await Task.Delay(300);
 
             string currentExePath = Process.GetCurrentProcess().MainModule?.FileName
                                     ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "VoiceCraft.exe");
@@ -200,7 +193,6 @@ Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Obj
 }
 Start-Sleep -Milliseconds 300
 
-# 1. Neu goi cap nhat co thu muc ReleaseBin (chua file .exe/.dll da bien dich san)
 $relBin = Join-Path $srcDir 'ReleaseBin'
 if (Test-Path (Join-Path $relBin 'VoiceCraft.exe')) {
     Copy-Item -Path ""$relBin\*"" -Destination $appDir -Recurse -Force
@@ -209,7 +201,6 @@ if (Test-Path (Join-Path $relBin 'VoiceCraft.exe')) {
         New-Item -ItemType Directory -Path $destEng -Force | Out-Null
         Copy-Item -Path (Join-Path $srcDir 'Engine\main.py') -Destination (Join-Path $destEng 'main.py') -Force
     }
-    # Cap nhat dong bo ma nguon trong ProjectRoot neu dang chay tren may Dev
     if (Test-Path (Join-Path $projRoot 'VoiceCraft.csproj')) {
         Get-ChildItem -Path $srcDir -Exclude 'Models','Output','Logs','Updates','.git','bin','obj' | ForEach-Object {
             Copy-Item -Path $_.FullName -Destination $projRoot -Recurse -Force
@@ -221,11 +212,9 @@ if (Test-Path (Join-Path $relBin 'VoiceCraft.exe')) {
     }
 }
 elseif (Test-Path (Join-Path $srcDir 'VoiceCraft.exe')) {
-    # 2. Neu goi cap nhat la ban Portable Binary truc tiep
     Copy-Item -Path ""$srcDir\*"" -Destination $appDir -Recurse -Force
 }
 else {
-    # 3. Neu goi cap nhat chi chua Source Code -> Copy source va build truc tiep
     Get-ChildItem -Path $srcDir -Exclude 'Models','Output','Logs','Updates','.git','bin','obj' | ForEach-Object {
         Copy-Item -Path $_.FullName -Destination $projRoot -Recurse -Force
     }
@@ -233,11 +222,9 @@ else {
     & dotnet build -c Debug -o $appDir | Out-Null
 }
 
-# 4. Xoa sach thu muc Updates rac va thu muc Temp (Zero-Junk)
 if (Test-Path $junkUpdatesDir) { Remove-Item -Path $junkUpdatesDir -Recurse -Force -ErrorAction SilentlyContinue }
 if (Test-Path $tempRoot) { Remove-Item -Path $tempRoot -Recurse -Force -ErrorAction SilentlyContinue }
 
-# 5. Khoi dong lai ung dung ngay lap tuc
 Start-Process -FilePath $exePath -WorkingDirectory $appDir
 Remove-Item -Path $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
 ");
@@ -260,22 +247,9 @@ Remove-Item -Path $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyConti
         {
             try
             {
-                string folder = Logger.ProjectRoot;
-                Process.Start("explorer.exe", folder);
+                Process.Start("explorer.exe", Logger.ProjectRoot);
             }
-            catch (Exception ex) { Logger.Error("L\u1ED7i m\u1EDF th\u01B0 m\u1EE5c", ex); }
-        }
-
-        private static string NormalizeRepoPath(string input)
-        {
-            string s = input.Trim().TrimEnd('/');
-            if (s.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase))
-                s = s.Substring("https://github.com/".Length);
-            else if (s.StartsWith("http://github.com/", StringComparison.OrdinalIgnoreCase))
-                s = s.Substring("http://github.com/".Length);
-            if (s.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
-                s = s.Substring(0, s.Length - 4);
-            return s.Trim('/');
+            catch (Exception ex) { Logger.Error("Lỗi mở thư mục", ex); }
         }
 
         private static int CompareVersions(string v1, string v2)

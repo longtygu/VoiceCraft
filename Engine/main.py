@@ -79,7 +79,7 @@ try:
 except Exception:
     HAS_EDGE_TTS = False
 
-app = FastAPI(title="VoiceCraft Ultimate Audio Studio v1.0.1")
+app = FastAPI(title="VoiceCraft Ultimate Audio Studio v1.0.2")
 
 class TTSRequest(BaseModel):
     text: str
@@ -1117,7 +1117,7 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
 async def ping():
     return {
         "status": "ready",
-        "version": "1.0.1",
+        "version": "1.0.2",
         "models": list_valid_onnx()
     }
 
