@@ -29,7 +29,7 @@
                 </Polygon.Fill>
             </Polygon>
 
-            <!-- THANH TIEU DE + KHUNG TRANG THAI MO RONG XANH LA / NHAP NHAY DO PHAT SANG + POPUP -->
+            <!-- THANH TIEU DE + KHUNG TRANG THAI (POPUP CHI BAT KHI IsModelError = True) -->
             <Border Grid.Row="0" Background="#24000000" BorderBrush="#28FFFFFF" BorderThickness="0,0,0,1"
                     CornerRadius="6,6,0,0" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid>
@@ -41,19 +41,22 @@
                         <Border CornerRadius="4" Padding="18,4" MinWidth="165" Margin="14,0,0,0"
                                 Background="{Binding StatusBadgeBackground, FallbackValue=#3800C853}"
                                 BorderBrush="{Binding StatusBadgeBorder, FallbackValue=#AA00E676}"
-                                BorderThickness="1.2" Cursor="Hand"
+                                BorderThickness="1.2"
+                                ToolTipService.IsEnabled="{Binding IsModelError, FallbackValue=False}"
                                 ToolTipService.InitialShowDelay="60"
                                 ToolTipService.ShowDuration="25000">
                             <Border.ToolTip>
-                                <ToolTip Background="#F2121824" BorderBrush="#FF5252" BorderThickness="1" Padding="10,6">
+                                <ToolTip Background="#F21A080C" BorderBrush="#FF1744" BorderThickness="1.2" Padding="12,6">
                                     <TextBlock Text="{Binding StatusPopupText}" Foreground="#FFE082" FontWeight="SemiBold" FontSize="12"/>
                                 </ToolTip>
                             </Border.ToolTip>
                             <Border.Style>
                                 <Style TargetType="Border">
                                     <Setter Property="Opacity" Value="1.0"/>
+                                    <Setter Property="Cursor" Value="Arrow"/>
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding IsModelError}" Value="True">
+                                            <Setter Property="Cursor" Value="Hand"/>
                                             <Setter Property="Effect">
                                                 <Setter.Value>
                                                     <DropShadowEffect Color="#FF1744" BlurRadius="18" ShadowDepth="0" Opacity="0.95"/>

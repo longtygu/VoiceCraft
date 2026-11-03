@@ -97,7 +97,7 @@ namespace VoiceCraft.App_Core.Services
                         ? (zProp.GetString() ?? $"https://github.com/{cleanRepo}/archive/refs/tags/{tagName}.zip")
                         : $"https://github.com/{cleanRepo}/archive/refs/tags/{tagName}.zip";
                     result.AssetFileName = $"VoiceCraft_Update_{latestVerStr}.zip";
-                    result.ReleaseNotes = $"Bản cập nhật VoiceCraft Studio v{latestVerStr}:\n- Thanh trạng thái Model sẵn sàng & Cảnh báo lỗi Model nhấp nháy.\n- Khóa cứng đường dẫn GitHub chính thức & Tự động thay thế file trực tiếp.";
+                    result.ReleaseNotes = $"Bản cập nhật VoiceCraft Studio v{latestVerStr}:\n- Thanh trạng thái Model sẵn sàng & Cảnh báo lỗi Model nhấp nháy.\n- Tab Sửa và Quét lỗi Model riêng biệt kèm nhật ký tiến trình chi tiết.\n- Khóa cứng đường dẫn GitHub chính thức & Tự động thay thế file trực tiếp.";
                     result.IsUpdateAvailable = CompareVersions(latestVerStr, CurrentAppVersion) > 0;
                     return result;
                 }

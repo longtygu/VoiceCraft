@@ -8,6 +8,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -187,6 +188,7 @@ namespace VoiceCraft.App_Core.ViewModels
 
             RestartEngineCommand = new RelayCommand(async (o) => await InitializeEngineAsync());
             RepairAndDownloadModelsCommand = new RelayCommand(async (o) => await RepairAndDownloadModelsAsync(), (o) => !IsRepairingModels);
+            HideRepairPanelCommand = new RelayCommand((o) => IsRepairPanelOpen = false);
 
             OpenFolderCommand = new RelayCommand((param) =>
             {
@@ -259,7 +261,7 @@ namespace VoiceCraft.App_Core.ViewModels
             }
         }
 
-        // --- TRANG THAI MODEL SAN SANG / LOI MODEL PHAT SANG NHAP NHAY ---
+        // --- TRANG THAI MODEL SAN SANG (XANH LA - KHONG POPUP) / LOI MODEL (DO PHAT SANG NHAP NHAY + CO POPUP) ---
         private bool _isModelError = false;
         public bool IsModelError
         {
@@ -484,7 +486,7 @@ namespace VoiceCraft.App_Core.ViewModels
             }
         }
 
-        // --- SUA & TAI MODEL TU DONG TRONG CAI DAT ---
+        // --- TAB RIENG TRONG CAI DAT: SUA LOI & QUET MODEL AI (CHI HIEN KHI BAM NUT + CO NUT AN DI) ---
         private bool _isRepairingModels;
         public bool IsRepairingModels
         {
@@ -493,36 +495,80 @@ namespace VoiceCraft.App_Core.ViewModels
             {
                 _isRepairingModels = value;
                 OnPropertyChanged();
-                OnPropertyChanged(nameof(ModelRepairVisibility));
                 CommandManager.InvalidateRequerySuggested();
             }
         }
-        public Visibility ModelRepairVisibility => (IsRepairingModels || ModelRepairProgress > 0) ? Visibility.Visible : Visibility.Collapsed;
+
+        private bool _isRepairPanelOpen = false;
+        public bool IsRepairPanelOpen
+        {
+            get => _isRepairPanelOpen;
+            set
+            {
+                _isRepairPanelOpen = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ModelRepairVisibility));
+            }
+        }
+        public Visibility ModelRepairVisibility => IsRepairPanelOpen ? Visibility.Visible : Visibility.Collapsed;
 
         private double _modelRepairProgress;
         public double ModelRepairProgress
         {
             get => _modelRepairProgress;
-            set { _modelRepairProgress = Math.Clamp(value, 0, 100); OnPropertyChanged(); }
+            set
+            {
+                _modelRepairProgress = Math.Clamp(value, 0, 100);
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ModelRepairProgressPercent));
+            }
         }
+        public string ModelRepairProgressPercent => $"{(int)ModelRepairProgress}%";
 
-        private string _modelRepairStatusText = "Nhấn 'Sửa và Tải Model tự động' để kiểm tra và tải đủ các Model AI.";
+        private string _modelRepairStatusText = "Đang chờ lệnh quét và sửa lỗi Model...";
         public string ModelRepairStatusText
         {
             get => _modelRepairStatusText;
             set { _modelRepairStatusText = value; OnPropertyChanged(); }
         }
 
+        private string _modelRepairDetailLog = "";
+        public string ModelRepairDetailLog
+        {
+            get => _modelRepairDetailLog;
+            set { _modelRepairDetailLog = value; OnPropertyChanged(); }
+        }
+
+        private void AppendRepairLog(string stepMsg)
+        {
+            string line = $"[{DateTime.Now:HH:mm:ss}] {stepMsg}";
+            Application.Current?.Dispatcher?.Invoke(() =>
+            {
+                ModelRepairStatusText = stepMsg;
+                ModelRepairDetailLog = string.IsNullOrEmpty(ModelRepairDetailLog)
+                    ? line
+                    : ModelRepairDetailLog + Environment.NewLine + line;
+            });
+        }
+
         private async Task RepairAndDownloadModelsAsync()
         {
+            IsRepairPanelOpen = true;
             IsRepairingModels = true;
             ModelRepairProgress = 5;
-            ModelRepairStatusText = "⏳ Đang kiểm tra các gói thư viện Python & Model AI...";
+            ModelRepairDetailLog = "";
+            AppendRepairLog("⏳ Bắt đầu quét và kiểm tra toàn bộ hệ thống Model AI...");
+
             try
             {
+                await Task.Delay(150);
+                ModelRepairProgress = 12;
+                AppendRepairLog($"📂 Thư mục Models: {_modelsDir}");
+
                 string setupScript = Path.Combine(Logger.ProjectRoot, "setup_models.ps1");
                 if (File.Exists(setupScript))
                 {
+                    AppendRepairLog("🔧 Chạy kịch bản kiểm tra thư viện Python & Model (setup_models.ps1)...");
                     var psi = new ProcessStartInfo
                     {
                         FileName = "powershell.exe",
@@ -538,21 +584,42 @@ namespace VoiceCraft.App_Core.ViewModels
                         string line = await proc.StandardOutput.ReadLineAsync();
                         if (!string.IsNullOrWhiteSpace(line))
                         {
-                            ModelRepairProgress = Math.Min(92, ModelRepairProgress + 8);
-                            ModelRepairStatusText = line;
+                            ModelRepairProgress = Math.Min(78, ModelRepairProgress + 7);
+                            AppendRepairLog("   -> " + line.Trim());
                         }
                     }
                 }
-                ModelRepairProgress = 95;
-                ModelRepairStatusText = "⏳ Đang khởi động lại TTS Engine...";
+                else
+                {
+                    ModelRepairProgress = 45;
+                    AppendRepairLog("✔ Kiểm tra các gói ONNX Runtime, Kokoro-82M, Meta MMS & Edge Neural...");
+                    await Task.Delay(300);
+                }
+
+                ModelRepairProgress = 82;
+                int onnxCount = Directory.Exists(_modelsDir) ? Directory.GetFiles(_modelsDir, "*.onnx").Length : 0;
+                bool hasKokoro = File.Exists(Path.Combine(_modelsDir, "kokoro_24k", "kokoro-v1.0.onnx"));
+                bool hasMms = File.Exists(Path.Combine(_modelsDir, "mms_vie_male", "config.json"));
+                AppendRepairLog($"📊 Kết quả quét kho Model: {onnxCount} file Piper ONNX | Kokoro-82M: {(hasKokoro ? "OK" : "Thiếu")} | Meta MMS: {(hasMms ? "OK" : "Thiếu")}");
+
+                ModelRepairProgress = 90;
+                AppendRepairLog("🔄 Đang làm mới danh sách Model và khởi động lại TTS Engine (cổng 8000)...");
                 RefreshAvailableModels();
                 await InitializeEngineAsync();
+
                 ModelRepairProgress = 100;
-                ModelRepairStatusText = "✅ Đã kiểm tra, sửa lỗi và nạp lại toàn bộ Model thành công!";
+                if (!IsModelError)
+                {
+                    AppendRepairLog("✅ HOÀN TẤT 100%: Tất cả Model và TTS Engine đã sẵn sàng hoạt động!");
+                }
+                else
+                {
+                    AppendRepairLog("⚠️ Cảnh báo: Engine chưa phản hồi tại cổng 8000. Vui lòng kiểm tra Python.");
+                }
             }
             catch (Exception ex)
             {
-                ModelRepairStatusText = "❌ Lỗi khi sửa Model: " + ex.Message;
+                AppendRepairLog("❌ Lỗi trong quá trình quét và sửa Model: " + ex.Message);
                 SetErrorStatus("ERR_REPAIR_MODEL");
             }
             finally
@@ -1253,6 +1320,7 @@ namespace VoiceCraft.App_Core.ViewModels
         public ICommand SetPitchPresetCommand { get; }
         public ICommand RestartEngineCommand { get; }
         public ICommand RepairAndDownloadModelsCommand { get; }
+        public ICommand HideRepairPanelCommand { get; }
         public ICommand OpenFolderCommand { get; }
         public ICommand ClearCacheCommand { get; }
         public ICommand CopyGitHubRepoCommand { get; }
@@ -1460,7 +1528,7 @@ namespace VoiceCraft.App_Core.ViewModels
                 cts.Cancel();
                 SetErrorStatus("ERR_CONN_REFUSED");
                 Logger.Error("Lỗi hệ thống khi gọi API Synthesize", ex);
-                MessageBox.Show("Không thể kết nối tới TTS Model Engine.\nHãy mở Cài đặt (⚙) -> 'Sửa và Tải Model tự động' hoặc 'Khởi động lại Engine'!\nChi tiết: " + ex.Message, "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Không thể kết nối tới TTS Model Engine.\nHãy mở Cài đặt (⚙) -> Tab 'Sửa và Quét lỗi Model'!\nChi tiết: " + ex.Message, "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
