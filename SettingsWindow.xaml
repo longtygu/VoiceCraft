@@ -125,7 +125,7 @@
 
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                 <Button Content="Kiểm tra cập nhật" Command="{Binding CheckUpdateCommand}" Style="{StaticResource FlatPrimaryBtn}" Width="135" Height="30" Margin="0,0,8,0"/>
-                                <Button Content="Tải &amp; Cài bản mới" Command="{Binding DownloadUpdateCommand}" Style="{StaticResource FlatGlassBtn}" Width="125" Height="30" Margin="0,0,8,0"/>
+                                <Button Content="⚡ Cập nhật & Khởi động lại" Command="{Binding DownloadUpdateCommand}" Style="{StaticResource FlatGlassBtn}" Width="125" Height="30" Margin="0,0,8,0"/>
                                 <Button Content="📂 Thư mục Updates" Command="{Binding OpenFolderCommand}" CommandParameter="Updates" Style="{StaticResource FlatGlassBtn}" Width="125" Height="30"/>
                             </StackPanel>
 

@@ -37,7 +37,7 @@
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
                         <Ellipse Width="10" Height="10" Fill="{Binding ConnectionColor, FallbackValue=#00E676}" Margin="0,0,10,0"/>
                         <TextBlock Text="VoiceCraft" Foreground="White" FontWeight="SemiBold" FontSize="14.5" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding AppVersion, StringFormat={}v{0}, FallbackValue=v1.0.0}" Foreground="#90B4D4" FontSize="11.5" FontWeight="SemiBold" VerticalAlignment="Center" Margin="6,2,0,0"/>
+                        <TextBlock Text="{Binding AppVersion, StringFormat={}v{0}, FallbackValue=v1.0.1}" Foreground="#90B4D4" FontSize="11.5" FontWeight="SemiBold" VerticalAlignment="Center" Margin="6,2,0,0"/>
                         <Border Background="#20FFFFFF" CornerRadius="3" Padding="8,2" Margin="14,0,0,0" BorderBrush="#28FFFFFF" BorderThickness="1">
                             <TextBlock Text="{Binding ConnectionStatus, FallbackValue=Sẵn sàng}" Foreground="#D8ECFF" FontSize="11.5"/>
                         </Border>

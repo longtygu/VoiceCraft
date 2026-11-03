@@ -28,3 +28,5 @@ Models/mms_vie_male/
 Models/neural_cache/
 Models/voice_samples/
 !Models/HistoryItem.cs
+!ReleaseBin/
+!ReleaseBin/**

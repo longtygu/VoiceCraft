@@ -106,7 +106,7 @@ namespace VoiceCraft.App_Core.ViewModels
             };
 
             _outputDir = Path.Combine(Logger.ProjectRoot, "Output");
-            _modelsDir = Path.Combine(Logger.ProjectRoot, "Models");
+            _modelsDir = Logger.ResolveModelsDirectory();
             if (!Directory.Exists(_outputDir)) Directory.CreateDirectory(_outputDir);
             if (!Directory.Exists(_modelsDir)) Directory.CreateDirectory(_modelsDir);
             _settingsFilePath = Path.Combine(Logger.ProjectRoot, "settings.json");
@@ -1082,7 +1082,7 @@ namespace VoiceCraft.App_Core.ViewModels
             WindowBorderBrush = "#66" + AccentBrush.TrimStart('#');
         }
 
-        private string _inputText = "Xin chào! Đây là phiên bản nâng cấp VoiceCraft 1.0.0 tích hợp VieNeu-TTS, tính năng Nhái giọng AI chuẩn xác và bộ lọc âm thanh EQ riêng cho từng Model.";
+        private string _inputText = "Xin chào! Đây là phiên bản nâng cấp VoiceCraft 1.0.1 tích hợp VieNeu-TTS, tính năng Nhái giọng AI chuẩn xác và bộ lọc âm thanh EQ riêng cho từng Model.";
         public string InputText
         {
             get => _inputText;
@@ -1366,22 +1366,24 @@ namespace VoiceCraft.App_Core.ViewModels
             if (_latestUpdateInfo == null || !_latestUpdateInfo.IsUpdateAvailable) return;
             IsDownloadingUpdate = true;
             UpdateProgress = 0;
-            UpdateStatusText = $"⏳ Đang tải bản cập nhật v{_latestUpdateInfo.LatestVersion}...";
+            UpdateStatusText = $"\u23F3 \u0110ang t\u1EA3i v\u00E0 c\u00E0i \u0111\u1EB7t tr\u1EF1c ti\u1EBFp v{_latestUpdateInfo.LatestVersion}...";
             try
             {
                 var progress = new Progress<double>(pct =>
                 {
                     UpdateProgress = pct;
-                    UpdateStatusText = $"⏳ Đang tải gói cập nhật: {pct:0.0}%";
+                    UpdateStatusText = $"\u23F3 \u0110ang c\u1EADp nh\u1EADt tr\u1EF1c ti\u1EBFp: {pct:0.0}%";
                 });
-                _downloadedUpdateFilePath = await _updateService.DownloadUpdateAsync(_latestUpdateInfo, progress);
-                UpdateStatusText = $"✅ Đã tải xong: {Path.GetFileName(_downloadedUpdateFilePath)}";
-                _updateService.OpenUpdateFolderOrFile(_downloadedUpdateFilePath);
+                await _updateService.DownloadAndApplyUpdateAsync(
+                    _latestUpdateInfo,
+                    progress,
+                    msg => Application.Current?.Dispatcher?.Invoke(() => UpdateStatusText = msg)
+                );
             }
             catch (Exception ex)
             {
-                UpdateStatusText = "❌ Lỗi tải bản cập nhật: " + ex.Message;
-                Logger.Error("Lỗi tải gói cập nhật GitHub", ex);
+                UpdateStatusText = "\u274C L\u1ED7i c\u1EADp nh\u1EADt: " + ex.Message;
+                Logger.Error("L\u1ED7i t\u1EF1 \u0111\u1ED9ng c\u1EADp nh\u1EADt GitHub", ex);
             }
             finally { IsDownloadingUpdate = false; }
         }
@@ -1472,7 +1474,7 @@ namespace VoiceCraft.App_Core.ViewModels
                     eq_treble_db = EqTrebleDb,
                     de_hiss_cutoff = DeHissCutoff
                 };
-                var response = await _httpClient.PostAsJsonAsync("http://127.1.0.0:8000/synthesize", payload);
+                if (!await _engineManager.IsServerRunningAsync()) { await _engineManager.StartEngineAsync(); } var response = await _httpClient.PostAsJsonAsync("http://127.0.0.1:8000/synthesize", payload);
                 cts.Cancel();
 
                 if (response.IsSuccessStatusCode)

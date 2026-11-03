@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
@@ -9,136 +9,103 @@ namespace VoiceCraft.App_Core.Services
     public class EngineManager : IDisposable
     {
         private Process _engineProcess;
-        private readonly HttpClient _httpClient;
-        private readonly string _baseUrl = "http://127.0.0.1:8000";
+        private readonly HttpClient _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+        private const string PingUrl = "http://127.0.0.1:8000/ping";
 
-        public EngineManager()
-        {
-            _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
-        }
-
-        private void KillZombieProcesses()
+        public async Task<bool> IsServerRunningAsync()
         {
             try
             {
-                foreach (var process in Process.GetProcessesByName("TTS_Engine"))
-                {
-                    process.Kill();
-                    process.WaitForExit(1000);
-                }
+                var res = await _httpClient.GetAsync(PingUrl);
+                return res.IsSuccessStatusCode;
             }
-            catch (Exception ex) { Logger.Error("Lỗi dọn dẹp Zombie Process", ex); }
+            catch
+            {
+                return false;
+            }
         }
 
         public async Task<bool> StartEngineAsync()
         {
-            if (await CheckServerAliveAsync()) return true;
-
-            KillZombieProcesses();
-
-            string root = Logger.ProjectRoot;
-            string exePath = Path.Combine(root, @"Engine\dist\TTS_Engine\TTS_Engine.exe");
-            string pyScriptPath = Path.Combine(root, @"Engine\main.py");
-            string modelsDir = Path.Combine(root, "Models");
-            string outputDir = Path.Combine(root, "Output");
-
-            Directory.CreateDirectory(modelsDir);
-            Directory.CreateDirectory(outputDir);
-
-            ProcessStartInfo psi = null;
-
-            if (File.Exists(exePath))
+            if (await IsServerRunningAsync())
             {
-                Logger.Info($"Khởi chạy Engine từ file đóng gói: {exePath}");
-                psi = new ProcessStartInfo
-                {
-                    FileName = exePath,
-                    WorkingDirectory = Path.GetDirectoryName(exePath),
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    WindowStyle = ProcessWindowStyle.Hidden
-                };
+                Logger.Info("FastAPI Engine đã hoạt động sẵn tại 127.0.0.1:8000.");
+                return true;
             }
-            else if (File.Exists(pyScriptPath))
-            {
-                Logger.Info($"Chưa có TTS_Engine.exe, tự động chạy trực tiếp bằng Python: {pyScriptPath}");
-                psi = new ProcessStartInfo
-                {
-                    FileName = "python",
-                    Arguments = $"\"{pyScriptPath}\"",
-                    WorkingDirectory = Path.GetDirectoryName(pyScriptPath),
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    WindowStyle = ProcessWindowStyle.Hidden
-                };
-            }
-            else
-            {
-                Logger.Error("Không tìm thấy cả TTS_Engine.exe lẫn Engine\\main.py!");
-                return false;
-            }
-
-            psi.EnvironmentVariables["VOICECRAFT_MODELS_DIR"] = modelsDir;
-            psi.EnvironmentVariables["VOICECRAFT_OUTPUT_DIR"] = outputDir;
 
             try
             {
-                _engineProcess = Process.Start(psi);
-            }
-            catch (Exception ex)
-            {
-                Logger.Error("Không thể khởi chạy tiến trình Engine", ex);
-                return false;
-            }
+                string root = Logger.ProjectRoot;
+                string modelsDir = Logger.ResolveModelsDirectory();
+                string outputDir = Path.Combine(root, "Output");
+                Directory.CreateDirectory(outputDir);
 
-            return await WaitForEngineReadyAsync();
-        }
+                // Tìm main.py tại thư mục hiện tại, ProjectRoot hoặc thư mục gốc
+                string scriptPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Engine", "main.py");
+                if (!File.Exists(scriptPath))
+                    scriptPath = Path.Combine(root, "Engine", "main.py");
+                if (!File.Exists(scriptPath))
+                    scriptPath = @"E:\WORK\Microsoft Visual Studio\VoiceCraft\Engine\main.py";
 
-        private async Task<bool> CheckServerAliveAsync()
-        {
-            try
-            {
-                var response = await _httpClient.GetAsync($"{_baseUrl}/ping");
-                return response.IsSuccessStatusCode;
-            }
-            catch { return false; }
-        }
-
-        private async Task<bool> WaitForEngineReadyAsync()
-        {
-            for (int i = 0; i < 20; i++)
-            {
-                if (_engineProcess != null && _engineProcess.HasExited)
+                if (!File.Exists(scriptPath))
                 {
-                    Logger.Error($"Tiến trình Engine bị tắt đột ngột với mã thoát: {_engineProcess.ExitCode}");
+                    Logger.Error($"Không tìm thấy Engine\\main.py tại: {scriptPath}");
                     return false;
                 }
 
-                if (await CheckServerAliveAsync()) return true;
-                await Task.Delay(1000);
-            }
-            return false;
-        }
-
-        public void StopEngine()
-        {
-            if (_engineProcess != null && !_engineProcess.HasExited)
-            {
-                try
+                var psi = new ProcessStartInfo
                 {
-                    _engineProcess.Kill(true);
-                    _engineProcess.WaitForExit(2000);
+                    FileName = "python",
+                    Arguments = $"\"{scriptPath}\"",
+                    WorkingDirectory = Path.GetDirectoryName(scriptPath),
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+
+                psi.EnvironmentVariables["VOICECRAFT_MODELS_DIR"] = modelsDir;
+                psi.EnvironmentVariables["VOICECRAFT_OUTPUT_DIR"] = outputDir;
+                psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
+
+                _engineProcess = Process.Start(psi);
+                if (_engineProcess != null)
+                {
+                    _engineProcess.ErrorDataReceived += (s, e) =>
+                    {
+                        if (!string.IsNullOrWhiteSpace(e.Data))
+                            Logger.Info($"[Engine] {e.Data}");
+                    };
+                    _engineProcess.BeginErrorReadLine();
                 }
-                catch { }
+
+                for (int i = 0; i < 40; i++)
+                {
+                    if (await IsServerRunningAsync())
+                        return true;
+                    await Task.Delay(350);
+                }
             }
-            KillZombieProcesses();
+            catch (Exception ex)
+            {
+                Logger.Error("Lỗi khởi động Python Engine", ex);
+            }
+
+            return false;
         }
 
         public void Dispose()
         {
-            StopEngine();
+            try
+            {
+                if (_engineProcess != null && !_engineProcess.HasExited)
+                {
+                    _engineProcess.Kill(true);
+                    _engineProcess.Dispose();
+                }
+            }
+            catch { }
             _httpClient?.Dispose();
-            _engineProcess?.Dispose();
         }
     }
 }

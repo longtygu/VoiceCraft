@@ -1,18 +1,21 @@
 ﻿using System;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Windows;
 
 namespace VoiceCraft.App_Core.Services
 {
     public class UpdateInfo
     {
         public bool IsUpdateAvailable { get; set; }
-        public string CurrentVersion { get; set; } = "1.0.0";
-        public string LatestVersion { get; set; } = "1.0.0";
+        public string CurrentVersion { get; set; } = UpdateService.CurrentAppVersion;
+        public string LatestVersion { get; set; } = UpdateService.CurrentAppVersion;
         public string ReleaseNotes { get; set; } = "";
         public string DownloadUrl { get; set; } = "";
         public string HtmlUrl { get; set; } = "";
@@ -21,12 +24,12 @@ namespace VoiceCraft.App_Core.Services
 
     public class UpdateService : IDisposable
     {
-        public const string CurrentAppVersion = "1.0.0";
+        public const string CurrentAppVersion = "1.0.1";
         private readonly HttpClient _httpClient;
 
         public UpdateService()
         {
-            _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            _httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
             _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("VoiceCraft-Updater", CurrentAppVersion));
             _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         }
@@ -49,7 +52,7 @@ namespace VoiceCraft.App_Core.Services
                 using var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
 
-                string tagName = root.TryGetProperty("tag_name", out var tagProp) ? (tagProp.GetString() ?? "1.0.0") : "1.0.0";
+                string tagName = root.TryGetProperty("tag_name", out var tagProp) ? (tagProp.GetString() ?? CurrentAppVersion) : CurrentAppVersion;
                 string latestVerStr = tagName.TrimStart('v', 'V', ' ');
                 result.LatestVersion = latestVerStr;
                 result.ReleaseNotes = root.TryGetProperty("body", out var bodyProp) ? (bodyProp.GetString() ?? "") : "";
@@ -89,14 +92,14 @@ namespace VoiceCraft.App_Core.Services
                 if (arr.ValueKind == JsonValueKind.Array && arr.GetArrayLength() > 0)
                 {
                     var firstTag = arr[0];
-                    string tagName = firstTag.TryGetProperty("name", out var nProp) ? (nProp.GetString() ?? "v1.0.0") : "v1.0.0";
+                    string tagName = firstTag.TryGetProperty("name", out var nProp) ? (nProp.GetString() ?? "v1.0.1") : "v1.0.1";
                     string latestVerStr = tagName.TrimStart('v', 'V', ' ');
                     result.LatestVersion = latestVerStr;
                     result.DownloadUrl = firstTag.TryGetProperty("zipball_url", out var zProp)
                         ? (zProp.GetString() ?? $"https://github.com/{cleanRepo}/archive/refs/tags/{tagName}.zip")
                         : $"https://github.com/{cleanRepo}/archive/refs/tags/{tagName}.zip";
                     result.AssetFileName = $"VoiceCraft_Update_{latestVerStr}.zip";
-                    result.ReleaseNotes = $"B\u1EA3n ph\u00E1t h\u00E0nh ch\u00EDnh th\u1EE9c VoiceCraft Studio {tagName} ({cleanRepo}):\n- Giao di\u1EC7n C\u00F4ng t\u1EAFc g\u1EA1t (Toggle Switch), thu g\u1ECDn Tab 2 & 3.\n- N\u00E2ng c\u1EA5p l\u00F5i Nh\u00E1i gi\u1ECDng AI b\u1EA3o to\u00E0n 100% nguy\u00EAn \u00E2m.\n- B\u1ED5 sung m\u00E0u \u0110en/X\u00E1m, n\u00FAt M\u1EDF th\u01B0 m\u1EE5c Output & C\u00F4ng c\u1EE5 S\u1EEDa/T\u1EA3i Model t\u1EF1 \u0111\u1ED9ng.";
+                    result.ReleaseNotes = $"B\u1EA3n c\u1EADp nh\u1EADt VoiceCraft Studio v{latestVerStr}:\n- T\u1EF1 \u0111\u1ED9ng thay th\u1EBF th\u1EB3ng file \u1EE9ng d\u1EE5ng, d\u1ECDn s\u1EA1ch file t\u1EA1m v\u00E0 kh\u1EDFi \u0111\u1ED9ng l\u1EA1i ngay.\n- Kh\u1EAFc ph\u1EE5c tri\u1EC7t \u0111\u1EC3 l\u1ED7i k\u1EBFt n\u1ED1i Engine (127.0.0.1:8000) khi ch\u1EA1y b\u1EA3n Release.";
                     result.IsUpdateAvailable = CompareVersions(latestVerStr, CurrentAppVersion) > 0;
                     return result;
                 }
@@ -106,65 +109,161 @@ namespace VoiceCraft.App_Core.Services
             return result;
         }
 
-        public async Task<string> DownloadUpdateAsync(UpdateInfo info, IProgress<double> progress = null)
+        /// <summary>
+        /// T\u1EA3i g\u00F3i c\u1EADp nh\u1EADt v\u00E0o %TEMP%, gi\u1EA3i n\u00E9n, ghi \u0111\u00E8 th\u1EB3ng v\u00E0o \u1EE9ng d\u1EE5ng \u0111ang ch\u1EA1y,
+        /// x\u00F3a s\u1EA1ch to\u00E0n b\u1ED9 file t\u1EA1m (kh\u00F4ng \u0111\u1EC3 l\u1EA1i r\u00E1c) v\u00E0 t\u1EF1 \u0111\u1ED9ng kh\u1EDFi \u0111\u1ED9ng l\u1EA1i App.
+        /// </summary>
+        public async Task DownloadAndApplyUpdateAsync(UpdateInfo info, IProgress<double> progress = null, Action<string> statusCallback = null)
         {
             if (info == null || string.IsNullOrWhiteSpace(info.DownloadUrl))
-                throw new InvalidOperationException("Kh\u00F4ng t\u00ECm th\u1EA5y \u0111\u01B0\u1EDDng d\u1EABn t\u1EA3i g\u00F3i c\u1EADp nh\u1EADt.");
+                throw new InvalidOperationException("Kh\u00F4ng t\u00ECm th\u1EA5y \u0111\u01B0\u1EDDng d\u1EABn t\u1EA3i b\u1EA3n c\u1EADp nh\u1EADt.");
 
-            string updateDir = Path.Combine(Logger.ProjectRoot, "Updates");
-            if (!Directory.Exists(updateDir)) Directory.CreateDirectory(updateDir);
+            string tempRoot = Path.Combine(Path.GetTempPath(), "VoiceCraft_AutoUpdate_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(tempRoot);
+            string tempZip = Path.Combine(tempRoot, "update_pkg.zip");
+            string extractDir = Path.Combine(tempRoot, "extracted");
 
-            string fileName = string.IsNullOrWhiteSpace(info.AssetFileName)
-                ? $"VoiceCraft_Update_{info.LatestVersion}.zip"
-                : info.AssetFileName;
-            string destPath = Path.Combine(updateDir, fileName);
-
-            using var response = await _httpClient.GetAsync(info.DownloadUrl, HttpCompletionOption.ResponseHeadersRead);
-            response.EnsureSuccessStatusCode();
-
-            long? totalBytes = response.Content.Headers.ContentLength;
-            using var contentStream = await response.Content.ReadAsStreamAsync();
-            using var fileStream = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
-
-            byte[] buffer = new byte[81920];
-            long totalRead = 0;
-            int bytesRead;
-
-            while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            statusCallback?.Invoke($"\u23F3 \u0110ang t\u1EA3i b\u1EA3n c\u1EADp nh\u1EADt v{info.LatestVersion}...");
+            using (var response = await _httpClient.GetAsync(info.DownloadUrl, HttpCompletionOption.ResponseHeadersRead))
             {
-                await fileStream.WriteAsync(buffer, 0, bytesRead);
-                totalRead += bytesRead;
+                response.EnsureSuccessStatusCode();
+                long? totalBytes = response.Content.Headers.ContentLength;
+                using var contentStream = await response.Content.ReadAsStreamAsync();
+                using var fileStream = new FileStream(tempZip, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
 
-                if (totalBytes.HasValue && totalBytes.Value > 0)
+                byte[] buffer = new byte[81920];
+                long totalRead = 0;
+                int bytesRead;
+
+                while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
                 {
-                    double pct = Math.Round((double)totalRead * 100.0 / totalBytes.Value, 1);
-                    progress?.Report(Math.Clamp(pct, 0, 100));
-                }
-                else
-                {
-                    double fakePct = Math.Min(95.0, Math.Round((double)totalRead / 50000.0, 1));
-                    progress?.Report(fakePct);
+                    await fileStream.WriteAsync(buffer, 0, bytesRead);
+                    totalRead += bytesRead;
+
+                    if (totalBytes.HasValue && totalBytes.Value > 0)
+                    {
+                        double pct = Math.Round((double)totalRead * 90.0 / totalBytes.Value, 1);
+                        progress?.Report(Math.Clamp(pct, 0, 90));
+                    }
+                    else
+                    {
+                        double fakePct = Math.Min(88.0, Math.Round((double)totalRead / 45000.0, 1));
+                        progress?.Report(fakePct);
+                    }
                 }
             }
 
+            progress?.Report(92.0);
+            statusCallback?.Invoke("\u26A1 \u0110ang gi\u1EA3i n\u00E9n v\u00E0 chu\u1EA9n b\u1ECB thay th\u1EBF file tr\u1EF1c ti\u1EBFp...");
+            ZipFile.ExtractToDirectory(tempZip, extractDir, true);
+            File.Delete(tempZip); // X\u00F3a ngay file .zip t\u1EA1m sau khi gi\u1EA3i n\u00E9n
+
+            // Unwrap th\u01B0 m\u1EE5c con n\u1EBFu l\u00E0 g\u00F3i zipball t\u1EEB GitHub
+            string sourceContentDir = extractDir;
+            var subDirs = Directory.GetDirectories(extractDir);
+            var rootFiles = Directory.GetFiles(extractDir);
+            if (subDirs.Length == 1 && rootFiles.Length == 0)
+            {
+                sourceContentDir = subDirs[0];
+            }
+
             progress?.Report(100.0);
-            return destPath;
+            statusCallback?.Invoke("\u2705 \u0110ang t\u1EF1 \u0111\u1ED9ng thay th\u1EBF file, d\u1ECDn r\u00E1c v\u00E0 kh\u1EDFi \u0111\u1ED9ng l\u1EA1i...");
+            await Task.Delay(350);
+
+            string currentExePath = Process.GetCurrentProcess().MainModule?.FileName
+                                    ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "VoiceCraft.exe");
+            string currentAppDir = Path.GetDirectoryName(currentExePath) ?? AppDomain.CurrentDomain.BaseDirectory;
+            string projectRoot = Logger.ProjectRoot;
+            string updatesJunkDir = Path.Combine(projectRoot, "Updates");
+            int currentPid = Process.GetCurrentProcess().Id;
+
+            string psUpdaterPath = Path.Combine(Path.GetTempPath(), $"vc_hot_swap_{currentPid}.ps1");
+            var sb = new StringBuilder();
+            sb.AppendLine("$ErrorActionPreference = 'SilentlyContinue'");
+            sb.AppendLine($"$pidToWait = {currentPid}");
+            sb.AppendLine($"$srcDir = '{sourceContentDir}'");
+            sb.AppendLine($"$tempRoot = '{tempRoot}'");
+            sb.AppendLine($"$appDir = '{currentAppDir.TrimEnd('\\')}'");
+            sb.AppendLine($"$projRoot = '{projectRoot.TrimEnd('\\')}'");
+            sb.AppendLine($"$exePath = '{currentExePath}'");
+            sb.AppendLine($"$junkUpdatesDir = '{updatesJunkDir}'");
+            sb.AppendLine(@"
+for ($i = 0; $i -lt 30; $i++) {
+    if (!(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue)) { break }
+    Start-Sleep -Milliseconds 200
+}
+Stop-Process -Id $pidToWait -Force -ErrorAction SilentlyContinue
+Get-Process -Name 'TTS_Engine' -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object {
+    Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
+}
+Start-Sleep -Milliseconds 300
+
+# 1. Neu goi cap nhat co thu muc ReleaseBin (chua file .exe/.dll da bien dich san)
+$relBin = Join-Path $srcDir 'ReleaseBin'
+if (Test-Path (Join-Path $relBin 'VoiceCraft.exe')) {
+    Copy-Item -Path ""$relBin\*"" -Destination $appDir -Recurse -Force
+    if (Test-Path (Join-Path $srcDir 'Engine\main.py')) {
+        $destEng = Join-Path $appDir 'Engine'
+        New-Item -ItemType Directory -Path $destEng -Force | Out-Null
+        Copy-Item -Path (Join-Path $srcDir 'Engine\main.py') -Destination (Join-Path $destEng 'main.py') -Force
+    }
+    # Cap nhat dong bo ma nguon trong ProjectRoot neu dang chay tren may Dev
+    if (Test-Path (Join-Path $projRoot 'VoiceCraft.csproj')) {
+        Get-ChildItem -Path $srcDir -Exclude 'Models','Output','Logs','Updates','.git','bin','obj' | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination $projRoot -Recurse -Force
+        }
+        $dbgDir = Join-Path $projRoot 'bin\Debug\net8.0-windows'
+        if (Test-Path $dbgDir) { Copy-Item -Path ""$relBin\*"" -Destination $dbgDir -Recurse -Force }
+        $pubDir = Join-Path $projRoot 'bin\Release\net8.0-windows\publish'
+        if (Test-Path $pubDir) { Copy-Item -Path ""$relBin\*"" -Destination $pubDir -Recurse -Force }
+    }
+}
+elseif (Test-Path (Join-Path $srcDir 'VoiceCraft.exe')) {
+    # 2. Neu goi cap nhat la ban Portable Binary truc tiep
+    Copy-Item -Path ""$srcDir\*"" -Destination $appDir -Recurse -Force
+}
+else {
+    # 3. Neu goi cap nhat chi chua Source Code -> Copy source va build truc tiep
+    Get-ChildItem -Path $srcDir -Exclude 'Models','Output','Logs','Updates','.git','bin','obj' | ForEach-Object {
+        Copy-Item -Path $_.FullName -Destination $projRoot -Recurse -Force
+    }
+    Set-Location $projRoot
+    & dotnet build -c Debug -o $appDir | Out-Null
+}
+
+# 4. Xoa sach thu muc Updates rac va thu muc Temp (Zero-Junk)
+if (Test-Path $junkUpdatesDir) { Remove-Item -Path $junkUpdatesDir -Recurse -Force -ErrorAction SilentlyContinue }
+if (Test-Path $tempRoot) { Remove-Item -Path $tempRoot -Recurse -Force -ErrorAction SilentlyContinue }
+
+# 5. Khoi dong lai ung dung ngay lap tuc
+Start-Process -FilePath $exePath -WorkingDirectory $appDir
+Remove-Item -Path $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
+");
+
+            File.WriteAllText(psUpdaterPath, sb.ToString(), new UTF8Encoding(false));
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{psUpdaterPath}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            Process.Start(psi);
+
+            Application.Current?.Dispatcher?.Invoke(() => Application.Current.Shutdown());
         }
 
         public void OpenUpdateFolderOrFile(string filePath)
         {
             try
             {
-                if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
-                    Process.Start("explorer.exe", $"/select,\"{filePath}\"");
-                else
-                {
-                    string updateDir = Path.Combine(Logger.ProjectRoot, "Updates");
-                    if (!Directory.Exists(updateDir)) Directory.CreateDirectory(updateDir);
-                    Process.Start("explorer.exe", updateDir);
-                }
+                string folder = Logger.ProjectRoot;
+                Process.Start("explorer.exe", folder);
             }
-            catch (Exception ex) { Logger.Error("L\u1ED7i m\u1EDF th\u01B0 m\u1EE5c c\u1EADp nh\u1EADt", ex); }
+            catch (Exception ex) { Logger.Error("L\u1ED7i m\u1EDF th\u01B0 m\u1EE5c", ex); }
         }
 
         private static string NormalizeRepoPath(string input)
