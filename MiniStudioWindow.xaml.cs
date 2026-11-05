@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.IO;
@@ -17,7 +18,7 @@ namespace VoiceCraft
 {
     public partial class MiniStudioWindow : Window
     {
-        private enum InteractionMode { None, ScrubPlayhead, PanViewport, MoveClip, TrimClipLeft, TrimClipRight }
+        private enum InteractionMode { None, ScrubPlayhead, PanViewport, MarqueeSelect, MoveClip, TrimClipLeft, TrimClipRight }
         private InteractionMode _mode = InteractionMode.None;
 
         private double _pixelsPerSecond = 60.0;
@@ -26,18 +27,28 @@ namespace VoiceCraft
         private const double LayerHeight = 76.0;
         private const int MaxPolygonSamples = 420;
 
-        private bool _isHandPanModeEnabled = false;
+        // Mặc định: Kéo chuột ở vùng trống / thước đo sẽ di chuyển Timeline. Khi bật _isMarqueeSelectMode: Kéo vùng trống sẽ tạo khung chọn nhiều đoạn.
+        private bool _isMarqueeSelectMode = false;
         private bool _isUpdatingZoomSlider = false;
 
+        // Điều khiển kéo di chuyển Timeline trên Thước đo (TimeRulerCanvas)
+        private bool _isRulerMouseDown = false;
+        private bool _isRulerDraggingPan = false;
+        private Point _rulerMouseDownViewportPos;
+        private double _rulerClickSurfaceX;
+
+        // Điều khiển kéo / mở rộng thành phần đơn hoặc nhóm nhiều thành phần
         private TimelineClipItem _activeDragClip;
         private Border _activeDragBorder;
         private Polygon _activeDragWavePolygon;
         private TextBlock _activeDragTitleText;
+        private List<(TimelineClipItem clip, Border border, double origStartSec, int origLayer)> _multiMoveGroup = new List<(TimelineClipItem, Border, double, int)>();
 
         private Point _mouseDownSurfacePos;
         private Point _panStartViewportMousePos;
         private double _panStartHorizontalOffset;
         private double _panStartVerticalOffset;
+        private bool _hasPannedMoreThanThreshold = false;
 
         private double _origTimelineStartSec;
         private double _origSourceTrimStartSec;
@@ -73,6 +84,7 @@ namespace VoiceCraft
                     vm.RebuildMasterCompositeTimelineAudio();
                 }
             }
+            UpdateMouseModeButtonsUI();
             AutoFitTimelineZoom();
             this.Focus();
         }
@@ -123,6 +135,78 @@ namespace VoiceCraft
                 {
                     Dispatcher.InvokeAsync(RenderAllTimelineVisuals);
                 }
+            }
+        }
+
+        private void UpdateMouseModeButtonsUI()
+        {
+            if (PanEmptySpaceModeBtn != null && MarqueeSelectModeBtn != null)
+            {
+                if (_isMarqueeSelectMode)
+                {
+                    PanEmptySpaceModeBtn.Content = "✋ Chuột vùng trống: Di chuyển Timeline (Tắt)";
+                    PanEmptySpaceModeBtn.Foreground = new SolidColorBrush(Color.FromRgb(160, 190, 215));
+                    MarqueeSelectModeBtn.Content = "🔲 Chế độ Quét chọn nhiều đoạn: ĐANG BẬT";
+                    MarqueeSelectModeBtn.Foreground = new SolidColorBrush(Color.FromRgb(0, 230, 118));
+                    if (CapCutTrackSurface != null) CapCutTrackSurface.Cursor = Cursors.Cross;
+                }
+                else
+                {
+                    PanEmptySpaceModeBtn.Content = "✋ Chuột vùng trống: Di chuyển Timeline (Đang bật)";
+                    PanEmptySpaceModeBtn.Foreground = new SolidColorBrush(Color.FromRgb(0, 230, 118));
+                    MarqueeSelectModeBtn.Content = "🔲 Chế độ Quét chọn nhiều đoạn: Tắt";
+                    MarqueeSelectModeBtn.Foreground = new SolidColorBrush(Color.FromRgb(128, 216, 255));
+                    if (CapCutTrackSurface != null) CapCutTrackSurface.Cursor = Cursors.SizeAll;
+                }
+            }
+        }
+
+        private void PanEmptySpaceModeBtn_Click(object sender, RoutedEventArgs e)
+        {
+            _isMarqueeSelectMode = false;
+            UpdateMouseModeButtonsUI();
+            if (DataContext is MainViewModel vm)
+            {
+                vm.StudioStatusText = "✋ Đã bật chế độ Kéo vùng trống / Thước đo để di chuyển Timeline tự do.";
+            }
+        }
+
+        private void MarqueeSelectModeBtn_Click(object sender, RoutedEventArgs e)
+        {
+            _isMarqueeSelectMode = !_isMarqueeSelectMode;
+            UpdateMouseModeButtonsUI();
+            if (DataContext is MainViewModel vm)
+            {
+                vm.StudioStatusText = _isMarqueeSelectMode
+                    ? "🔲 Đã bật chế độ Quét chọn nhiều thành phần: Nhấn giữ chuột trái và kéo trên vùng trống để tạo khung chọn nhiều đoạn!"
+                    : "✋ Đã chuyển về chế độ Kéo chuột ở vùng trống / Thước đo để di chuyển Timeline.";
+            }
+        }
+
+        private void SelectAllClipsButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                vm.SelectAllTimelineClips();
+                RenderCapCutTimelineClips();
+            }
+        }
+
+        private void ClearSelectionButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                vm.ClearTimelineSelection();
+                RenderCapCutTimelineClips();
+            }
+        }
+
+        private void ExtendEmpty2SecButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                vm.ExtendSelectedClipsWithEmptySpace(2.0);
+                RenderAllTimelineVisuals();
             }
         }
 
@@ -207,27 +291,24 @@ namespace VoiceCraft
 
             if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
             {
-                // Ctrl + Lăn chuột: Thu phóng mượt mà giữ nguyên điểm âm thanh ngay dưới trỏ chuột
                 Point mouseInViewport = e.GetPosition(TimelineScrollViewer);
                 double zoomFactor = e.Delta > 0 ? 1.22 : (1.0 / 1.22);
                 SetPixelsPerSecond(_pixelsPerSecond * zoomFactor, Math.Max(0.0, mouseInViewport.X));
 
                 if (DataContext is MainViewModel vm)
                 {
-                    vm.StudioStatusText = $"🔍 Tỷ lệ thu phóng Timeline: {_pixelsPerSecond:0.0} px/giây (Ctrl + Lăn chuột để thu phóng, Giữ Chuột phải kéo để di chuyển)";
+                    vm.StudioStatusText = $"🔍 Tỷ lệ thu phóng Timeline: {_pixelsPerSecond:0.0} px/giây (Ctrl + Lăn chuột để thu phóng)";
                 }
                 e.Handled = true;
             }
             else if ((Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
             {
-                // Shift + Lăn chuột: Cuộn dọc giữa các Layer
                 double newVert = Math.Max(0.0, TimelineScrollViewer.VerticalOffset - (e.Delta * 0.5));
                 TimelineScrollViewer.ScrollToVerticalOffset(newVert);
                 e.Handled = true;
             }
             else
             {
-                // Lăn chuột thường: Trượt ngang dọc theo trục thời gian
                 double newHoriz = Math.Max(0.0, TimelineScrollViewer.HorizontalOffset - (e.Delta * 0.85));
                 TimelineScrollViewer.ScrollToHorizontalOffset(newHoriz);
                 e.Handled = true;
@@ -242,28 +323,6 @@ namespace VoiceCraft
                 LayerHeadersScrollViewer.ScrollToVerticalOffset(e.VerticalOffset);
         }
 
-        private void HandPanModeBtn_Click(object sender, RoutedEventArgs e)
-        {
-            _isHandPanModeEnabled = !_isHandPanModeEnabled;
-            if (HandPanModeBtn != null)
-            {
-                HandPanModeBtn.Content = _isHandPanModeEnabled ? "✋ Kéo khung nhìn: BẬT" : "✋ Kéo khung nhìn: Tắt";
-                HandPanModeBtn.Foreground = _isHandPanModeEnabled
-                    ? new SolidColorBrush(Color.FromRgb(0, 230, 118))
-                    : new SolidColorBrush(Color.FromRgb(128, 216, 255));
-            }
-            if (CapCutTrackSurface != null)
-            {
-                CapCutTrackSurface.Cursor = _isHandPanModeEnabled ? Cursors.SizeAll : Cursors.Arrow;
-            }
-            if (DataContext is MainViewModel vm)
-            {
-                vm.StudioStatusText = _isHandPanModeEnabled
-                    ? "✋ Đã bật chế độ Kéo khung nhìn tự do (Nhấn giữ chuột trái kéo để trượt Timeline)."
-                    : "🖱️ Đã tắt chế độ Kéo khung nhìn (Bạn vẫn có thể giữ Chuột phải hoặc Chuột giữa để kéo tự do bất cứ lúc nào).";
-            }
-        }
-
         private void ZoomFitButton_Click(object sender, RoutedEventArgs e) => AutoFitTimelineZoom();
         private void ZoomInButton_Click(object sender, RoutedEventArgs e) => SetPixelsPerSecond(_pixelsPerSecond * 1.30, (TimelineScrollViewer?.ActualWidth ?? 600) * 0.5);
         private void ZoomOutButton_Click(object sender, RoutedEventArgs e) => SetPixelsPerSecond(_pixelsPerSecond / 1.30, (TimelineScrollViewer?.ActualWidth ?? 600) * 0.5);
@@ -275,19 +334,28 @@ namespace VoiceCraft
         }
 
         // ==================== PHÍM TẮT CHUẨN CAPCUT PC ====================
-        private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+        protected override void OnPreviewKeyDown(KeyEventArgs e)
         {
-            if (Keyboard.FocusedElement is TextBox) return;
-            if (e.Key == Key.Space)
+            if ((e.Key == Key.Space || e.SystemKey == Key.Space) && Keyboard.FocusedElement is not TextBox)
             {
-                if (DataContext is MainViewModel vm && !vm.IsProcessing)
+                if (!e.IsRepeat && DataContext is MainViewModel vm && !vm.IsProcessing)
                 {
                     vm.ToggleMasterCompositePlayPause();
-                    e.Handled = true;
                 }
+                e.Handled = true;
                 return;
             }
-            Window_KeyDown(sender, e);
+            base.OnPreviewKeyDown(e);
+        }
+
+        protected override void OnPreviewKeyUp(KeyEventArgs e)
+        {
+            if ((e.Key == Key.Space || e.SystemKey == Key.Space) && Keyboard.FocusedElement is not TextBox)
+            {
+                e.Handled = true;
+                return;
+            }
+            base.OnPreviewKeyUp(e);
         }
 
         private void Window_KeyDown(object sender, KeyEventArgs e)
@@ -311,6 +379,12 @@ namespace VoiceCraft
                 {
                     vm.SplitSelectedClipAtPlayhead();
                     RenderAllTimelineVisuals();
+                    e.Handled = true;
+                }
+                else if (e.Key == Key.A)
+                {
+                    vm.SelectAllTimelineClips();
+                    RenderCapCutTimelineClips();
                     e.Handled = true;
                 }
                 else if (e.Key == Key.D0 || e.Key == Key.NumPad0)
@@ -447,10 +521,10 @@ namespace VoiceCraft
             double maxSec = 30.0;
             if (vm.TimelineClips.Count > 0)
             {
-                maxSec = Math.Max(25.0, vm.TimelineClips.Max(c => c.TimelineStartSec + c.DurationSec) * 1.25 + 10.0);
+                maxSec = Math.Max(25.0, vm.TimelineClips.Max(c => c.TimelineStartSec + c.DurationSec) * 1.35 + 15.0);
             }
             double viewportW = TimelineScrollViewer != null && TimelineScrollViewer.ActualWidth > 100 ? TimelineScrollViewer.ActualWidth : 900.0;
-            double totalWidth = Math.Max(viewportW + 200.0, maxSec * _pixelsPerSecond);
+            double totalWidth = Math.Max(viewportW + 300.0, maxSec * _pixelsPerSecond);
             double totalHeight = (layerCount * LayerHeight) + 52.0;
 
             CapCutTrackSurface.Width = totalWidth;
@@ -495,12 +569,12 @@ namespace VoiceCraft
 
                 if (layerCount > 1)
                 {
-                    var delLayerBtn = new Button
-                    {
+                    var delLayerBtn = new Button { Focusable = false, 
                         Content = "✕",
                         Width = 20,
                         Height = 20,
                         FontSize = 9.5,
+                        Visibility = Visibility.Collapsed,
                         Style = (Style)Application.Current.FindResource("MiniChipBtn"),
                         VerticalAlignment = VerticalAlignment.Top,
                         ToolTip = $"Xoá Layer {i + 1}"
@@ -510,6 +584,8 @@ namespace VoiceCraft
                         vm.RemoveLayerAt(capturedLayer);
                         RenderAllTimelineVisuals();
                     };
+                    hdrBorder.MouseEnter += (s, e) => delLayerBtn.Visibility = Visibility.Visible;
+                    hdrBorder.MouseLeave += (s, e) => delLayerBtn.Visibility = Visibility.Collapsed;
                     Grid.SetColumn(delLayerBtn, 1);
                     hdrGrid.Children.Add(delLayerBtn);
                 }
@@ -538,40 +614,33 @@ namespace VoiceCraft
                 LayerLanesBackgroundCanvas.Children.Add(sepLine);
             }
 
+            // Nút thêm Layer ở cuối danh sách ẩn mặc định, hiện khi di chuột vào
+            var addZoneText = new TextBlock
+            {
+                Text = "➕ Thêm Layer",
+                Foreground = new SolidColorBrush(Color.FromRgb(0, 230, 118)),
+                FontWeight = FontWeights.Bold,
+                FontSize = 11,
+                Opacity = 0.0,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
             var addZoneHeader = new Border
             {
                 Height = 48,
-                Background = new SolidColorBrush(Color.FromArgb(40, 0, 230, 118)),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(70, 0, 230, 118)),
+                Background = new SolidColorBrush(Color.FromArgb(20, 0, 230, 118)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(40, 0, 230, 118)),
                 BorderThickness = new Thickness(0, 0, 1, 1),
                 Cursor = Cursors.Hand,
-                Child = new TextBlock
-                {
-                    Text = "➕ Thêm Layer",
-                    Foreground = new SolidColorBrush(Color.FromRgb(0, 230, 118)),
-                    FontWeight = FontWeights.Bold,
-                    FontSize = 11,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                }
+                Child = addZoneText
             };
+            addZoneHeader.MouseEnter += (s, e) => addZoneText.Opacity = 1.0;
+            addZoneHeader.MouseLeave += (s, e) => addZoneText.Opacity = 0.0;
             addZoneHeader.MouseLeftButtonDown += (s, e) => AddLayerButton_Click(s, null);
             LayerHeadersStack.Children.Add(addZoneHeader);
-
-            double addZoneTop = layerCount * LayerHeight;
-            var addZoneHint = new TextBlock
-            {
-                Text = $"➕ Kéo thả bản ghi vào dòng này để tự động tạo Layer {layerCount + 1}...",
-                Foreground = new SolidColorBrush(Color.FromArgb(140, 0, 230, 118)),
-                FontSize = 11.5,
-                FontWeight = FontWeights.SemiBold
-            };
-            Canvas.SetLeft(addZoneHint, 16);
-            Canvas.SetTop(addZoneHint, addZoneTop + 14);
-            LayerLanesBackgroundCanvas.Children.Add(addZoneHint);
         }
 
-        // ==================== 2. THƯỚC ĐO THỜI GIAN THÍCH ỨNG (ADAPTIVE TIME RULER - KHÔNG BAO GIỜ TREO KHI FILE DÀI) ====================
+        // ==================== 2. THƯỚC ĐO THỜI GIAN THÍCH ỨNG (ADAPTIVE TIME RULER) ====================
         private void RenderTimeRuler()
         {
             if (TimeRulerCanvas == null) return;
@@ -580,7 +649,6 @@ namespace VoiceCraft
             double totalWidth = CapCutTrackSurface.Width;
             double totalSec = totalWidth / _pixelsPerSecond;
 
-            // Tự động chọn bước chia vạch chính để khoảng cách giữa 2 nhãn luôn ~65-120px
             double[] candidateSteps = { 0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0 };
             double majorStepSec = 600.0;
             foreach (double st in candidateSteps)
@@ -610,7 +678,8 @@ namespace VoiceCraft
                 {
                     X1 = x, Y1 = 14, X2 = x, Y2 = 28,
                     Stroke = majorBrush,
-                    StrokeThickness = 1
+                    StrokeThickness = 1,
+                    IsHitTestVisible = false
                 });
 
                 string labelStr;
@@ -630,7 +699,8 @@ namespace VoiceCraft
                     Text = labelStr,
                     Foreground = textBrush,
                     FontSize = 10,
-                    FontFamily = consolas
+                    FontFamily = consolas,
+                    IsHitTestVisible = false
                 };
                 Canvas.SetLeft(lbl, x + 3);
                 Canvas.SetTop(lbl, 2);
@@ -647,7 +717,8 @@ namespace VoiceCraft
                             {
                                 X1 = mx, Y1 = 21, X2 = mx, Y2 = 28,
                                 Stroke = minorBrush,
-                                StrokeThickness = 1
+                                StrokeThickness = 1,
+                                IsHitTestVisible = false
                             });
                         }
                     }
@@ -655,53 +726,49 @@ namespace VoiceCraft
             }
         }
 
-        // ==================== 3. DỰNG SÓNG ÂM GIỚI HẠN ĐỈNH (BOUNDED LOD POLYGON - MƯỢT TUYỆT ĐỐI VỚI FILE DÀI) ====================
+        // ==================== 3. DỰNG SÓNG ÂM THÀNH PHẦN (HỖ TRỢ PHẦN MỞ RỘNG RỖNG PHẲNG 0dB) ====================
         private PointCollection ComputeCroppedClipWaveformPoints(TimelineClipItem clip, double clipW, double waveH)
         {
             var pts = new PointCollection();
             double midY = waveH * 0.5;
-            if (clip.SourcePeaks == null || clip.SourcePeaks.Length == 0 || clipW < 4)
+            if (clip.SourcePeaks == null || clip.SourcePeaks.Length == 0 || clipW < 4 || clip.DurationSec <= 0.01)
                 return pts;
 
             int pps = Math.Max(10, clip.PeaksPerSecond);
-            int startPeakIdx = Math.Clamp((int)Math.Floor(clip.SourceTrimStartSec * pps), 0, clip.SourcePeaks.Length - 1);
-            int endPeakIdx = Math.Clamp((int)Math.Ceiling((clip.SourceTrimStartSec + clip.DurationSec) * pps), startPeakIdx + 1, clip.SourcePeaks.Length);
-
-            int peakCount = Math.Max(1, endPeakIdx - startPeakIdx);
-            // Giới hạn tối đa 420 cột mẫu cho mỗi Clip để dù file dài 30 phút thì vẽ Polygon vẫn dưới 0.3ms!
             int targetCols = (int)Math.Clamp(clipW * 0.65, 24.0, MaxPolygonSamples);
-            int step = Math.Max(1, peakCount / targetCols);
 
             double eqVisualBoost = 1.0 + ((clip.Band80Hz + clip.Band220Hz + clip.Band1kHz + clip.Band3k5Hz + clip.Band8kHz) / 60.0);
             eqVisualBoost = Math.Clamp(eqVisualBoost, 0.55, 1.55);
 
+            var topPoints = new Point[targetCols];
+            var botPoints = new Point[targetCols];
+
+            for (int c = 0; c < targetCols; c++)
+            {
+                double ratio = (double)c / Math.Max(1, targetCols - 1);
+                double x = ratio * clipW;
+                double tInClip = ratio * clip.DurationSec;
+                double tSrc = clip.SourceTrimStartSec + tInClip;
+
+                // Nếu tSrc nằm ngoài phạm vi file âm thanh gốc (< 0 hoặc >= SourceTotalDurationSec) -> Phần mở rộng là RỖNG (amp = 0)
+                if (tSrc < 0.0 || tSrc >= clip.SourceTotalDurationSec)
+                {
+                    topPoints[c] = new Point(x, midY);
+                    botPoints[c] = new Point(x, midY);
+                }
+                else
+                {
+                    int pIdx = Math.Clamp((int)(tSrc * pps), 0, clip.SourcePeaks.Length - 1);
+                    float maxP = clip.SourcePeaks[pIdx];
+                    double amp = Math.Clamp(maxP * eqVisualBoost, 0.02, 0.96) * (midY * 0.90);
+                    topPoints[c] = new Point(x, midY - amp);
+                    botPoints[c] = new Point(x, midY + amp);
+                }
+            }
+
             pts.Add(new Point(0, midY));
-            for (int i = startPeakIdx; i < endPeakIdx; i += step)
-            {
-                float maxP = 0f;
-                int lim = Math.Min(endPeakIdx, i + step);
-                for (int k = i; k < lim; k++)
-                {
-                    if (clip.SourcePeaks[k] > maxP) maxP = clip.SourcePeaks[k];
-                }
-                double ratio = (double)(i - startPeakIdx) / peakCount;
-                double x = Math.Clamp(ratio * clipW, 0, clipW);
-                double amp = Math.Clamp(maxP * eqVisualBoost, 0.02, 0.96) * (midY * 0.90);
-                pts.Add(new Point(x, midY - amp));
-            }
-            for (int i = endPeakIdx - 1; i >= startPeakIdx; i -= step)
-            {
-                float maxP = 0f;
-                int lowLim = Math.Max(startPeakIdx, i - step + 1);
-                for (int k = i; k >= lowLim; k--)
-                {
-                    if (clip.SourcePeaks[k] > maxP) maxP = clip.SourcePeaks[k];
-                }
-                double ratio = (double)(i - startPeakIdx) / peakCount;
-                double x = Math.Clamp(ratio * clipW, 0, clipW);
-                double amp = Math.Clamp(maxP * eqVisualBoost, 0.02, 0.96) * (midY * 0.90);
-                pts.Add(new Point(x, midY + amp));
-            }
+            for (int c = 0; c < targetCols; c++) pts.Add(topPoints[c]);
+            for (int c = targetCols - 1; c >= 0; c--) pts.Add(botPoints[c]);
             pts.Add(new Point(0, midY));
             return pts;
         }
@@ -710,6 +777,7 @@ namespace VoiceCraft
         {
             string badge = "";
             if (clip.HasCustomEq) badge += " [🎛️ ĐÃ CHỈNH EQ]";
+            if (clip.HasEmptyExtension) badge += " [↔️ Có mở rộng rỗng]";
             if (Math.Abs(clip.Semitones) >= 0.1) badge += $" [Tone {clip.Semitones:+0.#;-0.#}st]";
             if (clip.CloneEnabled) badge += " [🧬 Clone]";
             return $"{clip.Title} ({clip.DurationSec:0.00}s){badge}";
@@ -722,7 +790,8 @@ namespace VoiceCraft
 
             foreach (var clip in vm.TimelineClips)
             {
-                bool isSelected = (vm.SelectedTimelineClip == clip);
+                bool isPrimarySelected = (vm.SelectedTimelineClip == clip);
+                bool isMultiSelected = clip.IsSelected || isPrimarySelected;
                 bool hasEq = clip.HasCustomEq;
 
                 double leftX = clip.TimelineStartSec * _pixelsPerSecond;
@@ -740,12 +809,14 @@ namespace VoiceCraft
                 }
                 else
                 {
-                    bgBrush = new SolidColorBrush(Color.FromArgb(isSelected ? (byte)225 : (byte)185, 16, 34, 58));
+                    bgBrush = new SolidColorBrush(Color.FromArgb(isMultiSelected ? (byte)230 : (byte)185, 16, 34, 58));
                 }
 
-                Brush borderBrush = isSelected
+                Brush borderBrush = isPrimarySelected
                     ? new SolidColorBrush(Color.FromRgb(255, 214, 0))
-                    : (hasEq ? new SolidColorBrush(Color.FromRgb(234, 128, 252)) : new SolidColorBrush(Color.FromRgb(0, 229, 255)));
+                    : (isMultiSelected
+                        ? new SolidColorBrush(Color.FromRgb(0, 230, 118))
+                        : (hasEq ? new SolidColorBrush(Color.FromRgb(234, 128, 252)) : new SolidColorBrush(Color.FromRgb(0, 229, 255))));
 
                 Brush waveBrush = hasEq
                     ? new SolidColorBrush(Color.FromRgb(255, 128, 171))
@@ -758,11 +829,11 @@ namespace VoiceCraft
                     CornerRadius = new CornerRadius(5),
                     Background = bgBrush,
                     BorderBrush = borderBrush,
-                    BorderThickness = new Thickness(isSelected ? 2.4 : 1.4),
+                    BorderThickness = new Thickness(isMultiSelected ? 2.5 : 1.4),
                     ClipToBounds = true,
                     Tag = clip,
-                    Cursor = _isHandPanModeEnabled ? Cursors.SizeAll : Cursors.Hand,
-                    ToolTip = $"🎬 {clip.Title} (Layer {clip.LayerIndex + 1})\n• Vị trí phát: {clip.TimelineStartSec:0.00}s -> {(clip.TimelineStartSec + clip.DurationSec):0.00}s\n• Độ dài: {clip.DurationSec:0.00}s (Cắt từ gốc: {clip.SourceTrimStartSec:0.00}s)\n• Kéo thân để di chuyển • Kéo 2 cạnh ◀ / ▶ để cắt thu gọn • Ctrl + Lăn chuột để thu phóng"
+                    Cursor = Cursors.SizeAll,
+                    ToolTip = $"🎬 {clip.Title} (Layer {clip.LayerIndex + 1})\n• Vị trí: {clip.TimelineStartSec:0.00}s -> {(clip.TimelineStartSec + clip.DurationSec):0.00}s (Độ dài: {clip.DurationSec:0.00}s)\n• Di chuột vào đoạn sẽ hiện 2 nút ◀ / ▶ ở 2 đầu để thu gọn hoặc kéo dài mở rộng rỗng"
                 };
 
                 var innerGrid = new Grid();
@@ -773,6 +844,41 @@ namespace VoiceCraft
                     ClipToBounds = true,
                     IsHitTestVisible = false
                 };
+
+                // Đánh dấu trực quan vùng mở rộng rỗng (nếu có)
+                if (clip.SourceTrimStartSec < -0.01 && clip.DurationSec > 0.05)
+                {
+                    double emptyLeftSec = Math.Min(clip.DurationSec, -clip.SourceTrimStartSec);
+                    var emptyLeftRect = new Rectangle
+                    {
+                        Width = Math.Max(2, (emptyLeftSec / clip.DurationSec) * clipW),
+                        Height = Math.Max(20, clipH - 20),
+                        Fill = new SolidColorBrush(Color.FromArgb(75, 0, 0, 0)),
+                        Stroke = new SolidColorBrush(Color.FromArgb(90, 128, 203, 196)),
+                        StrokeDashArray = new DoubleCollection { 3, 2 }
+                    };
+                    Canvas.SetLeft(emptyLeftRect, 0);
+                    Canvas.SetTop(emptyLeftRect, 0);
+                    waveContainer.Children.Add(emptyLeftRect);
+                }
+                if ((clip.SourceTrimStartSec + clip.DurationSec) > clip.SourceTotalDurationSec + 0.01 && clip.DurationSec > 0.05)
+                {
+                    double audioEndInClipSec = Math.Max(0.0, clip.SourceTotalDurationSec - clip.SourceTrimStartSec);
+                    double emptyRightSec = Math.Max(0.0, clip.DurationSec - audioEndInClipSec);
+                    double startX = (audioEndInClipSec / clip.DurationSec) * clipW;
+                    var emptyRightRect = new Rectangle
+                    {
+                        Width = Math.Max(2, (emptyRightSec / clip.DurationSec) * clipW),
+                        Height = Math.Max(20, clipH - 20),
+                        Fill = new SolidColorBrush(Color.FromArgb(75, 0, 0, 0)),
+                        Stroke = new SolidColorBrush(Color.FromArgb(90, 128, 203, 196)),
+                        StrokeDashArray = new DoubleCollection { 3, 2 }
+                    };
+                    Canvas.SetLeft(emptyRightRect, startX);
+                    Canvas.SetTop(emptyRightRect, 0);
+                    waveContainer.Children.Add(emptyRightRect);
+                }
+
                 var wavePoly = new Polygon
                 {
                     Points = ComputeCroppedClipWaveformPoints(clip, clipW, Math.Max(20, clipH - 20)),
@@ -804,24 +910,43 @@ namespace VoiceCraft
                 headerBd.Child = titleTxt;
                 innerGrid.Children.Add(headerBd);
 
+                // 2 NÚT MỞ RỘNG / THU GỌN THÀNH PHẦN Ở 2 ĐẦU MẶC ĐỊNH ĐƯỢC ẨN (Visibility.Collapsed), CHỈ KHI DI CHUỘT VÀO MỚI HIỂN THỊ!
                 var leftHandle = new Border
                 {
-                    Width = 9,
+                    Width = 12,
                     HorizontalAlignment = HorizontalAlignment.Left,
-                    Background = new SolidColorBrush(Color.FromArgb(215, 0, 230, 118)),
-                    Child = new TextBlock { Text = "◀", FontSize = 7, Foreground = Brushes.Black, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center },
+                    Background = new SolidColorBrush(Color.FromArgb(230, 0, 230, 118)),
+                    CornerRadius = new CornerRadius(4, 0, 0, 4),
+                    Visibility = Visibility.Collapsed,
+                    Child = new TextBlock { Text = "◀", FontSize = 8, FontWeight = FontWeights.Bold, Foreground = Brushes.Black, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center },
                     IsHitTestVisible = false
                 };
                 var rightHandle = new Border
                 {
-                    Width = 9,
+                    Width = 12,
                     HorizontalAlignment = HorizontalAlignment.Right,
-                    Background = new SolidColorBrush(Color.FromArgb(215, 255, 214, 0)),
-                    Child = new TextBlock { Text = "▶", FontSize = 7, Foreground = Brushes.Black, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center },
+                    Background = new SolidColorBrush(Color.FromArgb(230, 255, 214, 0)),
+                    CornerRadius = new CornerRadius(0, 4, 4, 0),
+                    Visibility = Visibility.Collapsed,
+                    Child = new TextBlock { Text = "▶", FontSize = 8, FontWeight = FontWeights.Bold, Foreground = Brushes.Black, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center },
                     IsHitTestVisible = false
                 };
                 innerGrid.Children.Add(leftHandle);
                 innerGrid.Children.Add(rightHandle);
+
+                clipBorder.MouseEnter += (s, e) =>
+                {
+                    leftHandle.Visibility = Visibility.Visible;
+                    rightHandle.Visibility = Visibility.Visible;
+                };
+                clipBorder.MouseLeave += (s, e) =>
+                {
+                    if (_mode == InteractionMode.None)
+                    {
+                        leftHandle.Visibility = Visibility.Collapsed;
+                        rightHandle.Visibility = Visibility.Collapsed;
+                    }
+                };
 
                 clipBorder.Child = innerGrid;
                 clipBorder.MouseLeftButtonDown += ClipBorder_MouseLeftButtonDown;
@@ -838,13 +963,8 @@ namespace VoiceCraft
             if (_mode != InteractionMode.None) return;
             if (sender is Border bd)
             {
-                if (_isHandPanModeEnabled)
-                {
-                    bd.Cursor = Cursors.ScrollAll;
-                    return;
-                }
                 Point p = e.GetPosition(bd);
-                if (p.X <= 11 || p.X >= Math.Max(12, bd.ActualWidth - 11))
+                if (p.X <= 12 || p.X >= Math.Max(13, bd.ActualWidth - 12))
                     bd.Cursor = Cursors.SizeWE;
                 else
                     bd.Cursor = Cursors.SizeAll;
@@ -859,25 +979,33 @@ namespace VoiceCraft
             this.Focus();
             vm.StopHeadlessDemo();
 
-            // Nếu đang bật chế độ Kéo khung nhìn (Hand Pan) hoặc giữ phím Alt -> Kéo trượt khung nhìn tự do
-            if (_isHandPanModeEnabled || (Keyboard.Modifiers & ModifierKeys.Alt) == ModifierKeys.Alt)
+            // Hỗ trợ giữ Ctrl + Click để chọn/bỏ chọn nhiều thành phần
+            if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
             {
-                StartViewportPan(e);
+                clip.IsSelected = !clip.IsSelected;
+                vm.SelectedTimelineClip = clip;
+                RenderCapCutTimelineClips();
                 e.Handled = true;
                 return;
             }
 
-            // Cập nhật thành phần đang chọn và nổi bật viền vàng tức thì (KHÔNG xóa/tái tạo Canvas để không mất chuột!)
+            if (!clip.IsSelected)
+            {
+                foreach (var c in vm.TimelineClips) c.IsSelected = false;
+                clip.IsSelected = true;
+            }
             vm.SelectedTimelineClip = clip;
+
             foreach (UIElement child in CapCutClipsCanvas.Children)
             {
                 if (child is Border otherBd && otherBd.Tag is TimelineClipItem otherClip)
                 {
-                    bool sel = (otherClip == clip);
-                    otherBd.BorderThickness = new Thickness(sel ? 2.4 : 1.4);
-                    otherBd.BorderBrush = sel
+                    bool isPri = (otherClip == clip);
+                    bool isMul = otherClip.IsSelected || isPri;
+                    otherBd.BorderThickness = new Thickness(isMul ? 2.5 : 1.4);
+                    otherBd.BorderBrush = isPri
                         ? new SolidColorBrush(Color.FromRgb(255, 214, 0))
-                        : (otherClip.HasCustomEq ? new SolidColorBrush(Color.FromRgb(234, 128, 252)) : new SolidColorBrush(Color.FromRgb(0, 229, 255)));
+                        : (isMul ? new SolidColorBrush(Color.FromRgb(0, 230, 118)) : (otherClip.HasCustomEq ? new SolidColorBrush(Color.FromRgb(234, 128, 252)) : new SolidColorBrush(Color.FromRgb(0, 229, 255))));
                 }
             }
 
@@ -890,19 +1018,33 @@ namespace VoiceCraft
 
             if (bd.Child is Grid g)
             {
-                if (g.Children.Count > 0 && g.Children[0] is Canvas wc && wc.Children.Count > 0)
-                    _activeDragWavePolygon = wc.Children[0] as Polygon;
+                if (g.Children.Count > 0 && g.Children[0] is Canvas wc)
+                {
+                    _activeDragWavePolygon = wc.Children.OfType<Polygon>().FirstOrDefault();
+                }
                 if (g.Children.Count > 1 && g.Children[1] is Border hb)
+                {
                     _activeDragTitleText = hb.Child as TextBlock;
+                }
             }
 
             _origTimelineStartSec = clip.TimelineStartSec;
             _origSourceTrimStartSec = clip.SourceTrimStartSec;
             _origDurationSec = clip.DurationSec;
 
-            if (localPos.X <= 11)
+            // Lưu danh sách tất cả các thành phần đang được chọn để di chuyển đồng loạt nếu người dùng đã quét chọn nhiều đoạn
+            _multiMoveGroup.Clear();
+            foreach (UIElement child in CapCutClipsCanvas.Children)
+            {
+                if (child is Border cBd && cBd.Tag is TimelineClipItem cItem && cItem.IsSelected)
+                {
+                    _multiMoveGroup.Add((cItem, cBd, cItem.TimelineStartSec, cItem.LayerIndex));
+                }
+            }
+
+            if (localPos.X <= 12)
                 _mode = InteractionMode.TrimClipLeft;
-            else if (localPos.X >= Math.Max(12, bd.ActualWidth - 11))
+            else if (localPos.X >= Math.Max(13, bd.ActualWidth - 12))
                 _mode = InteractionMode.TrimClipRight;
             else
                 _mode = InteractionMode.MoveClip;
@@ -911,12 +1053,69 @@ namespace VoiceCraft
             e.Handled = true;
         }
 
-        // ==================== DI CHUYỂN KHUNG NHÌN TỰ DO (FREE PANNING) & THAO TÁC THỜI GIAN THỰC O(1) ====================
+        // ==================== DI CHUYỂN TIMELINE BẰNG CHUỘT TRÊN THƯỚC ĐO & Ở VỊ TRÍ TRỐNG + QUÉT CHỌN NHIỀU ĐOẠN ====================
+        private void TimeRulerCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (DataContext is not MainViewModel vm || vm.IsProcessing || TimelineScrollViewer == null) return;
+            this.Focus();
+
+            _isRulerMouseDown = true;
+            _isRulerDraggingPan = false;
+            _rulerMouseDownViewportPos = e.GetPosition(TimelineScrollViewer);
+            _rulerClickSurfaceX = e.GetPosition(TimeRulerCanvas).X;
+            _panStartHorizontalOffset = TimelineScrollViewer.HorizontalOffset;
+            TimeRulerCanvas.CaptureMouse();
+            e.Handled = true;
+        }
+
+        private void TimeRulerCanvas_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (!_isRulerMouseDown || TimelineScrollViewer == null) return;
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                _isRulerMouseDown = false;
+                TimeRulerCanvas.ReleaseMouseCapture();
+                return;
+            }
+
+            Point curVp = e.GetPosition(TimelineScrollViewer);
+            double dx = curVp.X - _rulerMouseDownViewportPos.X;
+
+            if (Math.Abs(dx) > 4.0 || _isRulerDraggingPan)
+            {
+                _isRulerDraggingPan = true;
+                TimelineScrollViewer.ScrollToHorizontalOffset(Math.Max(0.0, _panStartHorizontalOffset - dx));
+                if (DataContext is MainViewModel vm)
+                {
+                    vm.StudioStatusText = "✋ Đang kéo di chuyển Timeline trên Thước đo...";
+                }
+            }
+        }
+
+        private void TimeRulerCanvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!_isRulerMouseDown) return;
+            _isRulerMouseDown = false;
+            if (TimeRulerCanvas.IsMouseCaptured)
+                TimeRulerCanvas.ReleaseMouseCapture();
+
+            // Nếu chỉ nhấp đơn trên thước đo (không kéo) -> đặt vị trí Vạch đỏ tại điểm nhấp
+            if (!_isRulerDraggingPan && DataContext is MainViewModel vm)
+            {
+                double clickedSec = Math.Max(0.0, _rulerClickSurfaceX / _pixelsPerSecond);
+                vm.SetTimelinePlayheadSeconds(clickedSec);
+                UpdatePlayheadVisuals();
+            }
+            _isRulerDraggingPan = false;
+        }
+
         private void StartViewportPan(MouseEventArgs e)
         {
             if (TimelineScrollViewer == null) return;
             _mode = InteractionMode.PanViewport;
+            _hasPannedMoreThanThreshold = false;
             _panStartViewportMousePos = e.GetPosition(TimelineScrollViewer);
+            _mouseDownSurfacePos = e.GetPosition(CapCutTrackSurface);
             _panStartHorizontalOffset = TimelineScrollViewer.HorizontalOffset;
             _panStartVerticalOffset = TimelineScrollViewer.VerticalOffset;
             CapCutTrackSurface.Cursor = Cursors.ScrollAll;
@@ -934,7 +1133,8 @@ namespace VoiceCraft
 
         private void CapCutTrackSurface_MouseUp(object sender, MouseButtonEventArgs e)
         {
-            if (_mode == InteractionMode.PanViewport && (e.ChangedButton == MouseButton.Middle || e.ChangedButton == MouseButton.Right || e.ChangedButton == MouseButton.Left))
+            if ((_mode == InteractionMode.PanViewport || _mode == InteractionMode.MarqueeSelect) &&
+                (e.ChangedButton == MouseButton.Middle || e.ChangedButton == MouseButton.Right || e.ChangedButton == MouseButton.Left))
             {
                 if (DataContext is MainViewModel vm)
                     FinishClipInteraction(vm);
@@ -942,64 +1142,40 @@ namespace VoiceCraft
             }
         }
 
-        private void TimeRulerCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            if (DataContext is not MainViewModel vm || vm.IsProcessing) return;
-            TimeRulerCanvas.CaptureMouse();
-            Point pos = e.GetPosition(TimeRulerCanvas);
-            double clickedSec = Math.Max(0.0, pos.X / _pixelsPerSecond);
-            vm.SetTimelinePlayheadSeconds(clickedSec);
-            UpdatePlayheadVisuals();
-        }
-
-        private void TimeRulerCanvas_MouseMove(object sender, MouseEventArgs e)
-        {
-            if (e.LeftButton == MouseButtonState.Pressed && TimeRulerCanvas.IsMouseCaptured && DataContext is MainViewModel vm)
-            {
-                Point pos = e.GetPosition(TimeRulerCanvas);
-                double sec = Math.Max(0.0, pos.X / _pixelsPerSecond);
-                vm.SetTimelinePlayheadSeconds(sec);
-                UpdatePlayheadVisuals();
-            }
-        }
-
-        private void TimeRulerCanvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-        {
-            if (TimeRulerCanvas.IsMouseCaptured)
-                TimeRulerCanvas.ReleaseMouseCapture();
-        }
-
         private void CapCutTrackSurface_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (DataContext is not MainViewModel vm || vm.IsProcessing) return;
             this.Focus();
 
-            if (_isHandPanModeEnabled || (Keyboard.Modifiers & ModifierKeys.Alt) == ModifierKeys.Alt)
+            // Nếu đang bật chế độ Quét chọn nhiều đoạn HOẶC giữ phím Shift -> Kéo chuột tạo khung chọn nhiều thành phần
+            if (_isMarqueeSelectMode || (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
             {
-                StartViewportPan(e);
+                _mode = InteractionMode.MarqueeSelect;
+                _mouseDownSurfacePos = e.GetPosition(CapCutTrackSurface);
+                foreach (var c in vm.TimelineClips) c.IsSelected = false;
+
+                Canvas.SetLeft(MarqueeSelectionBox, _mouseDownSurfacePos.X);
+                Canvas.SetTop(MarqueeSelectionBox, _mouseDownSurfacePos.Y);
+                MarqueeSelectionBox.Width = 0;
+                MarqueeSelectionBox.Height = 0;
+                MarqueeSelectionBox.Visibility = Visibility.Visible;
+
+                CapCutTrackSurface.CaptureMouse();
+                RenderCapCutTimelineClips();
                 e.Handled = true;
                 return;
             }
 
-            Point pos = e.GetPosition(CapCutTrackSurface);
-            _mode = InteractionMode.ScrubPlayhead;
-            CapCutTrackSurface.CaptureMouse();
-
-            double clickedSec = Math.Max(0.0, pos.X / _pixelsPerSecond);
-            vm.SetTimelinePlayheadSeconds(clickedSec);
-            UpdatePlayheadVisuals();
+            // Mặc định khi nhấn giữ chuột trái ở vị trí trống trên Layer (không chạm vào thành phần) -> Di chuyển Timeline tự do!
+            StartViewportPan(e);
+            e.Handled = true;
         }
 
         private void CapCutTrackSurface_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (DataContext is not MainViewModel vm || vm.IsProcessing) return;
             this.Focus();
-            // Nhấn giữ Chuột phải kéo để di chuyển khung nhìn tự do (Pan Viewport), hoặc nhấp đơn để đặt Playhead
             StartViewportPan(e);
-            Point pos = e.GetPosition(CapCutTrackSurface);
-            double clickedSec = Math.Max(0.0, pos.X / _pixelsPerSecond);
-            vm.SetTimelinePlayheadSeconds(clickedSec);
-            UpdatePlayheadVisuals();
             e.Handled = true;
         }
 
@@ -1007,6 +1183,7 @@ namespace VoiceCraft
         {
             if (DataContext is not MainViewModel vm) return;
 
+            // 1. Chế độ Kéo di chuyển Timeline khi đang ở vị trí trống trên Layer
             if (_mode == InteractionMode.PanViewport && TimelineScrollViewer != null)
             {
                 if (e.LeftButton != MouseButtonState.Pressed &&
@@ -1021,8 +1198,17 @@ namespace VoiceCraft
                 double dx = curViewportPos.X - _panStartViewportMousePos.X;
                 double dy = curViewportPos.Y - _panStartViewportMousePos.Y;
 
-                TimelineScrollViewer.ScrollToHorizontalOffset(Math.Max(0.0, _panStartHorizontalOffset - dx));
-                TimelineScrollViewer.ScrollToVerticalOffset(Math.Max(0.0, _panStartVerticalOffset - dy));
+                if (Math.Abs(dx) > 4.0 || Math.Abs(dy) > 4.0)
+                {
+                    _hasPannedMoreThanThreshold = true;
+                }
+
+                if (_hasPannedMoreThanThreshold)
+                {
+                    TimelineScrollViewer.ScrollToHorizontalOffset(Math.Max(0.0, _panStartHorizontalOffset - dx));
+                    TimelineScrollViewer.ScrollToVerticalOffset(Math.Max(0.0, _panStartVerticalOffset - dy));
+                    vm.StudioStatusText = "✋ Đang di chuyển Timeline tự do...";
+                }
                 return;
             }
 
@@ -1041,7 +1227,53 @@ namespace VoiceCraft
                 return;
             }
 
-            // Tự động cuộn khung nhìn (Auto-Edge Scroll) khi kéo thành phần ra sát mép trái/phải của cửa sổ
+            // 2. Chế độ Quét chuột tạo vùng chọn nhiều thành phần (Marquee Selection)
+            if (_mode == InteractionMode.MarqueeSelect)
+            {
+                double x = Math.Min(_mouseDownSurfacePos.X, pos.X);
+                double y = Math.Min(_mouseDownSurfacePos.Y, pos.Y);
+                double w = Math.Abs(pos.X - _mouseDownSurfacePos.X);
+                double h = Math.Abs(pos.Y - _mouseDownSurfacePos.Y);
+
+                Canvas.SetLeft(MarqueeSelectionBox, x);
+                Canvas.SetTop(MarqueeSelectionBox, y);
+                MarqueeSelectionBox.Width = w;
+                MarqueeSelectionBox.Height = h;
+
+                Rect selRect = new Rect(x, y, Math.Max(1, w), Math.Max(1, h));
+                int selectedCount = 0;
+                TimelineClipItem firstPicked = null;
+
+                foreach (UIElement child in CapCutClipsCanvas.Children)
+                {
+                    if (child is Border cBd && cBd.Tag is TimelineClipItem clip)
+                    {
+                        double cLeft = Canvas.GetLeft(cBd);
+                        double cTop = Canvas.GetTop(cBd);
+                        Rect clipRect = new Rect(cLeft, cTop, cBd.Width, cBd.Height);
+
+                        bool hit = selRect.IntersectsWith(clipRect);
+                        clip.IsSelected = hit;
+                        if (hit)
+                        {
+                            selectedCount++;
+                            firstPicked ??= clip;
+                        }
+                        cBd.BorderThickness = new Thickness(hit ? 2.5 : 1.4);
+                        cBd.BorderBrush = hit
+                            ? new SolidColorBrush(Color.FromRgb(0, 230, 118))
+                            : (clip.HasCustomEq ? new SolidColorBrush(Color.FromRgb(234, 128, 252)) : new SolidColorBrush(Color.FromRgb(0, 229, 255)));
+                    }
+                }
+
+                if (firstPicked != null)
+                    vm.SelectedTimelineClip = firstPicked;
+
+                vm.StudioStatusText = $"🔲 Đã quét chọn {selectedCount} thành phần (Kéo 1 đoạn để di chuyển cả nhóm • Ctrl+C/V sao chép • Delete để xoá)";
+                return;
+            }
+
+            // Tự động cuộn biên khi kéo thành phần chạm mép
             if (TimelineScrollViewer != null)
             {
                 Point vpPos = e.GetPosition(TimelineScrollViewer);
@@ -1065,43 +1297,78 @@ namespace VoiceCraft
             }
             else if (_mode == InteractionMode.MoveClip && _activeDragClip != null)
             {
-                double newStart = Math.Max(0.0, _origTimelineStartSec + deltaSec);
-                if (Math.Abs(newStart - vm.CurrentPosition) < (8.0 / _pixelsPerSecond))
-                    newStart = vm.CurrentPosition;
+                int origLeadLayer = _multiMoveGroup.FirstOrDefault(g => g.clip == _activeDragClip).origLayer;
+                int hoverLayer = Math.Max(0, (int)(pos.Y / LayerHeight));
+                int deltaLayer = hoverLayer - origLeadLayer;
 
-                int targetLayer = Math.Max(0, (int)(pos.Y / LayerHeight));
-                if (targetLayer >= vm.StudioLayerCount)
+                if (_multiMoveGroup.Count > 1)
                 {
-                    vm.StudioLayerCount = targetLayer + 1;
-                    RenderDynamicLayerHeadersAndLanes();
-                }
+                    // Di chuyển đồng loạt tất cả các thành phần đã quét chọn và giữ nguyên khoảng cách tương đối
+                    double minOrigStart = _multiMoveGroup.Min(g => g.origStartSec);
+                    double clampedDeltaSec = Math.Max(-minOrigStart, deltaSec);
+                    int minOrigLayer = _multiMoveGroup.Min(g => g.origLayer);
+                    int clampedDeltaLayer = Math.Max(-minOrigLayer, deltaLayer);
 
-                _activeDragClip.TimelineStartSec = newStart;
-                _activeDragClip.LayerIndex = targetLayer;
-
-                // CẬP NHẬT TRỰC TIẾP VỊ TRÍ BORDER O(1) - KHÔNG REBUILD CANVAS ĐỂ MƯỢT TUYỆT ĐỐI VỚI FILE DÀI!
-                if (_activeDragBorder != null)
-                {
-                    double newLeftPx = newStart * _pixelsPerSecond;
-                    Canvas.SetLeft(_activeDragBorder, newLeftPx);
-                    Canvas.SetTop(_activeDragBorder, (targetLayer * LayerHeight) + 5.0);
-                    if (newLeftPx + _activeDragBorder.Width + 150 > CapCutTrackSurface.Width)
+                    int maxTargetLayer = _multiMoveGroup.Max(g => g.origLayer + clampedDeltaLayer);
+                    if (maxTargetLayer >= vm.StudioLayerCount)
                     {
-                        CapCutTrackSurface.Width = newLeftPx + _activeDragBorder.Width + 300;
-                        TimeRulerCanvas.Width = CapCutTrackSurface.Width;
+                        vm.StudioLayerCount = maxTargetLayer + 1;
+                        RenderDynamicLayerHeadersAndLanes();
                     }
-                }
 
-                vm.StudioStatusText = $"🎬 Di chuyển '{_activeDragClip.Title}' -> Layer {targetLayer + 1} tại {newStart:0.00}s";
+                    foreach (var item in _multiMoveGroup)
+                    {
+                        double ns = Math.Max(0.0, item.origStartSec + clampedDeltaSec);
+                        int nl = Math.Max(0, item.origLayer + clampedDeltaLayer);
+                        item.clip.TimelineStartSec = ns;
+                        item.clip.LayerIndex = nl;
+                        if (item.border != null)
+                        {
+                            Canvas.SetLeft(item.border, ns * _pixelsPerSecond);
+                            Canvas.SetTop(item.border, (nl * LayerHeight) + 5.0);
+                        }
+                    }
+                    vm.StudioStatusText = $"🎬 Đang di chuyển nhóm {_multiMoveGroup.Count} thành phần cùng lúc...";
+                }
+                else
+                {
+                    double newStart = Math.Max(0.0, _origTimelineStartSec + deltaSec);
+                    if (Math.Abs(newStart - vm.CurrentPosition) < (8.0 / _pixelsPerSecond))
+                        newStart = vm.CurrentPosition;
+
+                    int targetLayer = Math.Max(0, (int)(pos.Y / LayerHeight));
+                    if (targetLayer >= vm.StudioLayerCount)
+                    {
+                        vm.StudioLayerCount = targetLayer + 1;
+                        RenderDynamicLayerHeadersAndLanes();
+                    }
+
+                    _activeDragClip.TimelineStartSec = newStart;
+                    _activeDragClip.LayerIndex = targetLayer;
+
+                    if (_activeDragBorder != null)
+                    {
+                        double newLeftPx = newStart * _pixelsPerSecond;
+                        Canvas.SetLeft(_activeDragBorder, newLeftPx);
+                        Canvas.SetTop(_activeDragBorder, (targetLayer * LayerHeight) + 5.0);
+                        if (newLeftPx + _activeDragBorder.Width + 150 > CapCutTrackSurface.Width)
+                        {
+                            CapCutTrackSurface.Width = newLeftPx + _activeDragBorder.Width + 300;
+                            TimeRulerCanvas.Width = CapCutTrackSurface.Width;
+                        }
+                    }
+                    vm.StudioStatusText = $"🎬 Di chuyển '{_activeDragClip.Title}' -> Layer {targetLayer + 1} tại {newStart:0.00}s";
+                }
             }
             else if (_mode == InteractionMode.TrimClipLeft && _activeDragClip != null)
             {
+                // Cho phép kéo cạnh Trái sang phải (cắt thu gọn) HOẶC kéo sang trái vượt quá 0s gốc để MỞ RỘNG RỖNG Ở ĐẦU!
                 double maxDelta = _origDurationSec - 0.12;
-                double minDelta = -_origSourceTrimStartSec;
+                double minDelta = -_origTimelineStartSec;
                 double clampedDelta = Math.Clamp(deltaSec, minDelta, maxDelta);
 
                 _activeDragClip.TimelineStartSec = Math.Max(0.0, _origTimelineStartSec + clampedDelta);
-                _activeDragClip.SourceTrimStartSec = Math.Max(0.0, _origSourceTrimStartSec + clampedDelta);
+                _activeDragClip.SourceTrimStartSec = Math.Round(_origSourceTrimStartSec + clampedDelta, 3);
                 _activeDragClip.DurationSec = Math.Max(0.12, _origDurationSec - clampedDelta);
 
                 if (_activeDragBorder != null)
@@ -1115,12 +1382,15 @@ namespace VoiceCraft
                         _activeDragWavePolygon.Points = ComputeCroppedClipWaveformPoints(_activeDragClip, newW, Math.Max(20, _activeDragBorder.Height - 20));
                 }
 
-                vm.StudioStatusText = $"✂️ Cắt đầu đoạn (Trim Left): Bỏ {_activeDragClip.SourceTrimStartSec:0.00}s đầu | Độ dài còn {_activeDragClip.DurationSec:0.00}s";
+                if (_activeDragClip.SourceTrimStartSec < -0.01)
+                    vm.StudioStatusText = $"↔️ Mở rộng rỗng đầu đoạn: Thêm {(-_activeDragClip.SourceTrimStartSec):0.00}s rỗng | Tổng độ dài: {_activeDragClip.DurationSec:0.00}s";
+                else
+                    vm.StudioStatusText = $"✂️ Thu gọn đầu đoạn: Bỏ {_activeDragClip.SourceTrimStartSec:0.00}s đầu | Độ dài còn: {_activeDragClip.DurationSec:0.00}s";
             }
             else if (_mode == InteractionMode.TrimClipRight && _activeDragClip != null)
             {
-                double maxPossibleDur = Math.Max(0.12, _activeDragClip.SourceTotalDurationSec - _activeDragClip.SourceTrimStartSec);
-                double newDur = Math.Clamp(_origDurationSec + deltaSec, 0.12, maxPossibleDur);
+                // Cho phép kéo cạnh Phải sang trái (thu gọn) HOẶC kéo sang phải không giới hạn để MỞ RỘNG RỖNG Ở CUỐI!
+                double newDur = Math.Max(0.12, Math.Round(_origDurationSec + deltaSec, 2));
                 _activeDragClip.DurationSec = newDur;
 
                 if (_activeDragBorder != null)
@@ -1131,10 +1401,26 @@ namespace VoiceCraft
                         _activeDragTitleText.Text = FormatClipHeaderTitle(_activeDragClip);
                     if (_activeDragWavePolygon != null)
                         _activeDragWavePolygon.Points = ComputeCroppedClipWaveformPoints(_activeDragClip, newW, Math.Max(20, _activeDragBorder.Height - 20));
+
+                    double rightEdgePx = (_activeDragClip.TimelineStartSec * _pixelsPerSecond) + newW;
+                    if (rightEdgePx + 150 > CapCutTrackSurface.Width)
+                    {
+                        CapCutTrackSurface.Width = rightEdgePx + 350;
+                        TimeRulerCanvas.Width = CapCutTrackSurface.Width;
+                    }
                 }
 
-                double trimmedTail = Math.Max(0.0, maxPossibleDur - newDur);
-                vm.StudioStatusText = $"✂️ Cắt cuối đoạn (Trim Right): Bỏ {trimmedTail:0.00}s cuối | Độ dài còn {_activeDragClip.DurationSec:0.00}s";
+                double maxAudioDur = Math.Max(0.0, _activeDragClip.SourceTotalDurationSec - _activeDragClip.SourceTrimStartSec);
+                if (newDur > maxAudioDur + 0.02)
+                {
+                    double emptyAdded = newDur - maxAudioDur;
+                    vm.StudioStatusText = $"↔️ Mở rộng rỗng cuối đoạn: Thêm +{emptyAdded:0.00}s khoảng rỗng | Tổng độ dài đoạn: {newDur:0.00}s";
+                }
+                else
+                {
+                    double trimmedTail = Math.Max(0.0, maxAudioDur - newDur);
+                    vm.StudioStatusText = $"✂️ Thu gọn cuối đoạn: Bỏ {trimmedTail:0.00}s cuối | Độ dài còn: {newDur:0.00}s";
+                }
             }
         }
 
@@ -1148,13 +1434,26 @@ namespace VoiceCraft
 
         private void FinishClipInteraction(MainViewModel vm)
         {
+            // Nếu nhấn đơn ở vùng trống (PanViewport nhưng không kéo quá 4px) -> Đặt Vạch đỏ tại vị trí nhấp & bỏ chọn nhóm
+            if (_mode == InteractionMode.PanViewport && !_hasPannedMoreThanThreshold)
+            {
+                double clickedSec = Math.Max(0.0, _mouseDownSurfacePos.X / _pixelsPerSecond);
+                vm.SetTimelinePlayheadSeconds(clickedSec);
+                foreach (var c in vm.TimelineClips) c.IsSelected = false;
+                UpdatePlayheadVisuals();
+            }
+
+            if (MarqueeSelectionBox != null)
+                MarqueeSelectionBox.Visibility = Visibility.Collapsed;
+
             bool needRebuildMix = (_mode == InteractionMode.MoveClip || _mode == InteractionMode.TrimClipLeft || _mode == InteractionMode.TrimClipRight);
             _mode = InteractionMode.None;
             _activeDragClip = null;
             _activeDragBorder = null;
             _activeDragWavePolygon = null;
             _activeDragTitleText = null;
-            CapCutTrackSurface.Cursor = _isHandPanModeEnabled ? Cursors.SizeAll : Cursors.Arrow;
+            _multiMoveGroup.Clear();
+            UpdateMouseModeButtonsUI();
             CapCutTrackSurface.ReleaseMouseCapture();
 
             if (needRebuildMix)

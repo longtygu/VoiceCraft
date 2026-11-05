@@ -1087,7 +1087,7 @@ namespace VoiceCraft.App_Core.ViewModels
             WindowBorderBrush = "#66" + AccentBrush.TrimStart('#');
         }
 
-        private string _inputText = "Xin chào! Đây là phiên bản nâng cấp VoiceCraft 1.0.4 tích hợp VieNeu-TTS, tính năng Nhái giọng AI chuẩn xác và bộ lọc âm thanh EQ riêng cho từng Model.";
+        private string _inputText = "Xin chào! Đây là phiên bản nâng cấp VoiceCraft 1.0.3 tích hợp VieNeu-TTS, tính năng Nhái giọng AI chuẩn xác và bộ lọc âm thanh EQ riêng cho từng Model.";
         public string InputText
         {
             get => _inputText;
@@ -1645,30 +1645,33 @@ namespace VoiceCraft.App_Core.ViewModels
                     float[] fullProcessed = ProcessClipDspInMemory(clip);
                     if (fullProcessed == null || fullProcessed.Length < 16) continue;
 
-                    double totalSrcSec = (double)fullProcessed.Length / sr;
-                    double trimInSec = Math.Clamp(clip.SourceTrimStartSec, 0.0, Math.Max(0.0, totalSrcSec - 0.05));
-                    double trimOutSec = Math.Clamp(trimInSec + clip.DurationSec, trimInSec + 0.05, totalSrcSec);
-
-                    int sIdx = Math.Clamp((int)Math.Round(trimInSec * sr), 0, fullProcessed.Length - 1);
-                    int eIdx = Math.Clamp((int)Math.Round(trimOutSec * sr), sIdx + 1, fullProcessed.Length);
-                    int segLen = eIdx - sIdx;
-                    if (segLen < 8) continue;
-
-                    float[] seg = new float[segLen];
-                    Array.Copy(fullProcessed, sIdx, seg, 0, segLen);
-
                     if (Math.Abs(clip.Speed - 1.0) >= 0.02)
                     {
-                        seg = ApplyWsolaTimeStretch(seg, clip.Speed);
+                        fullProcessed = ApplyWsolaTimeStretch(fullProcessed, clip.Speed);
                     }
 
-                    // Làm mượt 8ms ở 2 đầu vết cắt để không bị tiếng nổ lụp bụp
-                    int fadeSamples = Math.Min(seg.Length / 4, (int)(sr * 0.008));
-                    for (int f = 0; f < fadeSamples; f++)
+                    // Tạo bộ đệm có đúng độ dài DurationSec trên Layer (Phần mở rộng vượt ngoài phạm vi gốc mặc định bằng 0.0f - RỖNG/IM LẶNG)
+                    int clipWindowSamples = Math.Max(16, (int)Math.Round(clip.DurationSec * sr));
+                    int srcStartSample = (int)Math.Round(clip.SourceTrimStartSec * sr);
+                    float[] seg = new float[clipWindowSamples];
+
+                    int copySrcStart = Math.Max(0, srcStartSample);
+                    int copySrcEnd = Math.Min(fullProcessed.Length, srcStartSample + clipWindowSamples);
+
+                    if (copySrcEnd > copySrcStart)
                     {
-                        float ramp = (float)f / fadeSamples;
-                        seg[f] *= ramp;
-                        seg[seg.Length - 1 - f] *= ramp;
+                        int destOffset = copySrcStart - srcStartSample;
+                        int copyCount = copySrcEnd - copySrcStart;
+                        Array.Copy(fullProcessed, copySrcStart, seg, destOffset, copyCount);
+
+                        // Làm mượt 8ms tại ranh giới phần âm thanh thực để chống tiếng nổ lụp bụp
+                        int fadeSamples = Math.Min(copyCount / 4, (int)(sr * 0.008));
+                        for (int f = 0; f < fadeSamples; f++)
+                        {
+                            float ramp = (float)f / fadeSamples;
+                            seg[destOffset + f] *= ramp;
+                            seg[destOffset + copyCount - 1 - f] *= ramp;
+                        }
                     }
 
                     int tlStartSample = Math.Max(0, (int)Math.Round(clip.TimelineStartSec * sr));
@@ -1825,6 +1828,48 @@ namespace VoiceCraft.App_Core.ViewModels
             StudioStatusText = $"🗑️ Đã xoá Layer {layerIdxToRemove + 1} và cập nhật sóng âm tổng hợp.";
         }
 
+        private double _previewListVolume = 80.0;
+        public double PreviewListVolume
+        {
+            get => _previewListVolume;
+            set
+            {
+                _previewListVolume = Math.Clamp(value, 0.0, 100.0);
+                if (_previewListVolume > 0.5) _isPreviewListMuted = false;
+                if (_demoAudioReader != null)
+                {
+                    _demoAudioReader.Volume = _isPreviewListMuted ? 0f : (float)(_previewListVolume / 100.0);
+                }
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(PreviewListVolumeIcon));
+            }
+        }
+
+        private bool _isPreviewListMuted = false;
+        public bool IsPreviewListMuted
+        {
+            get => _isPreviewListMuted;
+            set
+            {
+                _isPreviewListMuted = value;
+                if (_demoAudioReader != null)
+                {
+                    _demoAudioReader.Volume = _isPreviewListMuted ? 0f : (float)(_previewListVolume / 100.0);
+                }
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(PreviewListVolumeIcon));
+            }
+        }
+
+        public string PreviewListVolumeIcon => (IsPreviewListMuted || PreviewListVolume <= 0.5) ? "🔇" : "🔊";
+
+        public ICommand TogglePreviewListMuteCommand => new RelayCommand((o) =>
+        {
+            IsPreviewListMuted = !IsPreviewListMuted;
+        });
+
+        private List<TimelineClipItem> _clipboardMultiClips = new List<TimelineClipItem>();
+
         public void PlayHeadless5SecDemo(string filePath)
         {
             if (_suppressDemoOnScan || string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return;
@@ -1834,9 +1879,10 @@ namespace VoiceCraft.App_Core.ViewModels
                 _audioPlayer.Stop();
                 _timer.Stop();
 
+                float effVol = IsPreviewListMuted ? 0f : (float)Math.Clamp(PreviewListVolume / 100.0, 0.0, 1.0);
                 _demoAudioReader = new AudioFileReader(filePath)
                 {
-                    Volume = (float)Math.Clamp(Volume / 100.0, 0.05, 1.0)
+                    Volume = effVol
                 };
                 _demoWaveOut = new WaveOutEvent();
                 _demoWaveOut.Init(_demoAudioReader);
@@ -1920,6 +1966,42 @@ namespace VoiceCraft.App_Core.ViewModels
 
         public void TogglePlayPause() => ToggleMasterCompositePlayPause();
 
+        public void SelectAllTimelineClips()
+        {
+            foreach (var c in TimelineClips) c.IsSelected = true;
+            if (SelectedTimelineClip == null && TimelineClips.Count > 0)
+                SelectedTimelineClip = TimelineClips[0];
+            StudioStatusText = $"☑️ Đã chọn tất cả {TimelineClips.Count} thành phần trên các Layer.";
+        }
+
+        public void ClearTimelineSelection()
+        {
+            foreach (var c in TimelineClips) c.IsSelected = false;
+            StudioStatusText = "✖️ Đã bỏ chọn nhóm thành phần.";
+        }
+
+        public void ExtendSelectedClipsWithEmptySpace(double extraEmptySeconds)
+        {
+            var targets = TimelineClips.Where(c => c.IsSelected).ToList();
+            if (targets.Count == 0 && SelectedTimelineClip != null)
+                targets.Add(SelectedTimelineClip);
+            if (targets.Count == 0 && TimelineClips.Count > 0)
+                targets.Add(TimelineClips.Last());
+
+            if (targets.Count == 0)
+            {
+                StudioStatusText = "⚠️ Hãy chọn ít nhất 1 thành phần trên Layer để mở rộng rỗng!";
+                return;
+            }
+
+            foreach (var c in targets)
+            {
+                c.DurationSec = Math.Round(c.DurationSec + extraEmptySeconds, 2);
+            }
+            RebuildMasterCompositeTimelineAudio();
+            StudioStatusText = $"↔️ Đã mở rộng thêm +{extraEmptySeconds:0.0}s khoảng rỗng cho {targets.Count} thành phần (Tổng độ dài: {TotalDuration:0.00}s)!";
+        }
+
         public void AddRecordingToTimeline(string filePath, int layerIndex = 0, double startSec = -1.0)
         {
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return;
@@ -1940,6 +2022,8 @@ namespace VoiceCraft.App_Core.ViewModels
                 placeSec = sameLayerClips.Count > 0 ? sameLayerClips.Max(c => c.TimelineStartSec + c.DurationSec) + 0.08 : 0.0;
             }
 
+            foreach (var c in TimelineClips) c.IsSelected = false;
+
             var newClip = new TimelineClipItem
             {
                 SourceFilePath = filePath,
@@ -1949,6 +2033,7 @@ namespace VoiceCraft.App_Core.ViewModels
                 SourceTrimStartSec = 0.0,
                 DurationSec = Math.Round(dur, 2),
                 SourceTotalDurationSec = Math.Round(dur, 2),
+                IsSelected = true,
                 SourcePeaks = peaks,
                 PeaksPerSecond = 50,
                 RawSamples22k = raw22k,
@@ -1963,32 +2048,56 @@ namespace VoiceCraft.App_Core.ViewModels
 
         public void CopySelectedClip()
         {
-            if (SelectedTimelineClip == null)
+            var selectedList = TimelineClips.Where(c => c.IsSelected).ToList();
+            if (selectedList.Count == 0 && SelectedTimelineClip != null)
+                selectedList.Add(SelectedTimelineClip);
+
+            if (selectedList.Count == 0)
             {
-                StudioStatusText = "⚠️ Hãy nhấp chọn 1 thành phần trên Layer trước khi nhấn Ctrl+C!";
+                StudioStatusText = "⚠️ Hãy chọn 1 hoặc quét chọn nhiều thành phần trên Layer trước khi nhấn Ctrl+C!";
                 return;
             }
-            _clipboardTimelineClip = SelectedTimelineClip.CloneCopy(SelectedTimelineClip.TimelineStartSec);
-            StudioStatusText = $"📋 Đã sao chép '{_clipboardTimelineClip.Title}' (Nhấn Ctrl+V để dán tại Vạch đỏ)";
+
+            _clipboardMultiClips = selectedList.Select(c => c.CloneCopy(c.TimelineStartSec)).ToList();
+            _clipboardTimelineClip = _clipboardMultiClips[0];
+            StudioStatusText = $"📋 Đã sao chép {_clipboardMultiClips.Count} thành phần vào Clipboard (Nhấn Ctrl+V để dán tại Vạch đỏ)";
         }
 
         public void PasteClipAtPlayhead()
         {
-            if (_clipboardTimelineClip == null)
+            if (_clipboardMultiClips == null || _clipboardMultiClips.Count == 0)
             {
-                StudioStatusText = "⚠️ Chưa có thành phần nào trong Clipboard (Hãy nhấn Ctrl+C trước)!";
-                return;
+                if (_clipboardTimelineClip != null)
+                    _clipboardMultiClips = new List<TimelineClipItem> { _clipboardTimelineClip };
+                else
+                {
+                    StudioStatusText = "⚠️ Chưa có thành phần nào trong Clipboard (Hãy nhấn Ctrl+C trước)!";
+                    return;
+                }
             }
-            double pasteSec = CurrentPosition > 0.05
-                ? CurrentPosition
-                : (_clipboardTimelineClip.TimelineStartSec + _clipboardTimelineClip.DurationSec + 0.08);
 
-            var pasted = _clipboardTimelineClip.CloneCopy(Math.Round(pasteSec, 2));
-            pasted.Title = _clipboardTimelineClip.Title + "_Copy";
-            TimelineClips.Add(pasted);
-            SelectedTimelineClip = pasted;
+            double minOrigStart = _clipboardMultiClips.Min(c => c.TimelineStartSec);
+            double maxOrigEnd = _clipboardMultiClips.Max(c => c.TimelineStartSec + c.DurationSec);
+            double basePasteSec = CurrentPosition > 0.05 ? CurrentPosition : (maxOrigEnd + 0.08);
+
+            foreach (var c in TimelineClips) c.IsSelected = false;
+
+            TimelineClipItem lastPasted = null;
+            foreach (var srcClip in _clipboardMultiClips)
+            {
+                double relOffset = srcClip.TimelineStartSec - minOrigStart;
+                var pasted = srcClip.CloneCopy(Math.Round(basePasteSec + relOffset, 2));
+                pasted.Title = srcClip.Title + "_Copy";
+                pasted.IsSelected = true;
+                TimelineClips.Add(pasted);
+                lastPasted = pasted;
+            }
+
+            if (lastPasted != null)
+                SelectedTimelineClip = lastPasted;
+
             RebuildMasterCompositeTimelineAudio();
-            StudioStatusText = $"📌 Đã dán '{pasted.Title}' vào Layer {pasted.LayerIndex + 1} tại {pasted.TimelineStartSec:0.00}s";
+            StudioStatusText = $"📌 Đã dán {_clipboardMultiClips.Count} thành phần tại {basePasteSec:0.00}s";
         }
 
         public void SplitSelectedClipAtPlayhead()
@@ -2027,8 +2136,10 @@ namespace VoiceCraft.App_Core.ViewModels
             rightPart.SourceTrimStartSec = Math.Round(clip.SourceTrimStartSec + firstDur, 2);
             rightPart.DurationSec = secondDur;
             rightPart.Title = clip.Title + "_P2";
+            rightPart.IsSelected = true;
 
             clip.DurationSec = firstDur;
+            clip.IsSelected = false;
             if (!clip.Title.EndsWith("_P1")) clip.Title += "_P1";
 
             TimelineClips.Add(rightPart);
@@ -2040,12 +2151,21 @@ namespace VoiceCraft.App_Core.ViewModels
 
         public void DeleteSelectedClip()
         {
-            if (SelectedTimelineClip == null) return;
-            string removedTitle = SelectedTimelineClip.Title;
-            TimelineClips.Remove(SelectedTimelineClip);
+            var toDelete = TimelineClips.Where(c => c.IsSelected).ToList();
+            if (toDelete.Count == 0 && SelectedTimelineClip != null)
+                toDelete.Add(SelectedTimelineClip);
+
+            if (toDelete.Count == 0) return;
+
+            foreach (var c in toDelete)
+                TimelineClips.Remove(c);
+
             SelectedTimelineClip = TimelineClips.LastOrDefault();
+            if (SelectedTimelineClip != null)
+                SelectedTimelineClip.IsSelected = true;
+
             RebuildMasterCompositeTimelineAudio();
-            StudioStatusText = $"🗑️ Đã xoá '{removedTitle}' khỏi Layer và cập nhật sóng âm tổng hợp.";
+            StudioStatusText = $"🗑️ Đã xoá {toDelete.Count} thành phần khỏi Layer và cập nhật sóng âm tổng hợp.";
         }
 
         private bool _isMiniStudioMode = false;
@@ -2255,9 +2375,9 @@ namespace VoiceCraft.App_Core.ViewModels
             PlayMasterCompositeAudio();
         });
 
-        public ICommand RenderCapCutTimelineMixdownCommand => new RelayCommand(async (o) =>
+        public ICommand RenderCapCutTimelineMixdownCommand => new RelayCommand((o) =>
         {
-            await ExportMasterCompositeToWavFileAsync();
+            _ = ExportMasterCompositeToWavFileAsync();
         }, (o) => !IsProcessing);
 
         public ICommand SetCutStartFromPlayheadCommand => new RelayCommand((o) =>
@@ -2395,14 +2515,14 @@ namespace VoiceCraft.App_Core.ViewModels
         public ICommand QuickCutKeepCommand => new RelayCommand((o) => RebuildMasterCompositeTimelineAudio());
         public ICommand QuickCutOutCommand => new RelayCommand((o) => RebuildMasterCompositeTimelineAudio());
         public ICommand QuickMergeRecordingsCommand => new RelayCommand((o) => RebuildMasterCompositeTimelineAudio());
-        public ICommand ApplyStudioOverwriteCommand => new RelayCommand(async (o) => await ExportMasterCompositeToWavFileAsync(), (o) => !IsProcessing);
-        public ICommand ApplyStudioNewFileCommand => new RelayCommand(async (o) => await ExportMasterCompositeToWavFileAsync(), (o) => !IsProcessing);
+        public ICommand ApplyStudioOverwriteCommand => new RelayCommand((o) => ExportMasterCompositeToWavFile());
+        public ICommand ApplyStudioNewFileCommand => new RelayCommand((o) => ExportMasterCompositeToWavFile());
 
         private async Task ExportMasterCompositeToWavFileAsync()
         {
             if (TimelineClips.Count == 0)
             {
-                MessageBox.Show("Timeline đang trống! Hãy kéo thả bản ghi vào Layer trước khi xuất file.", "VoiceCraft Mini Studio", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("Timeline dang trong! Hay keo tha ban ghi vao Layer truoc khi xuat file.", "VoiceCraft Mini Studio", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -2411,69 +2531,44 @@ namespace VoiceCraft.App_Core.ViewModels
             _timer.Stop();
 
             IsProcessing = true;
-            SynthesisProgress = 5;
-            SynthesisStatusText = $"Đang phân tích & đồng bộ {TimelineClips.Count} thành phần trên {StudioLayerCount} Layer...";
-            ConnectionStatus = "Đang kết xuất âm thanh Studio...";
-            ConnectionColor = "#00C8FF";
-
-            using var cts = new CancellationTokenSource();
-            var progressTask = Task.Run(async () =>
-            {
-                try
-                {
-                    while (!cts.Token.IsCancellationRequested && SynthesisProgress < 92)
-                    {
-                        await Task.Delay(95, cts.Token);
-                        Application.Current?.Dispatcher?.Invoke(() =>
-                        {
-                            if (SynthesisProgress < 38)
-                            {
-                                SynthesisProgress += 5.5;
-                                SynthesisStatusText = $"Đang cắt & đồng bộ khung thời gian trên {StudioLayerCount} Layer...";
-                            }
-                            else if (SynthesisProgress < 74)
-                            {
-                                SynthesisProgress += 4.5;
-                                int eqClips = TimelineClips.Count(c => c.HasCustomEq);
-                                SynthesisStatusText = eqClips > 0
-                                    ? $"Đang xử lý 5-Band Parametric EQ ({eqClips} đoạn) & Chỉnh Tone/Nhái giọng..."
-                                    : "Đang xử lý DSP âm sắc & cân bằng pha sóng âm...";
-                            }
-                            else if (SynthesisProgress < 92)
-                            {
-                                SynthesisProgress += 3.0;
-                                SynthesisStatusText = "Đang trộn sóng âm tổng hợp (Master Composite Mixdown)...";
-                            }
-                        });
-                    }
-                }
-                catch (TaskCanceledException) { }
-            });
-
+            SynthesisProgress = 8;
+            SynthesisStatusText = $"Dang phan tich & dong bo {TimelineClips.Count} thanh phan tren {StudioLayerCount} Layer...";
             try
             {
-                await Task.Delay(420);
-                RebuildMasterCompositeTimelineAudio();
+                await Task.Delay(180);
+                SynthesisProgress = 45;
+                SynthesisStatusText = "Dang xu ly 5-Band Parametric EQ, Tone & Nhai giong AI...";
+                await Task.Delay(220);
+                SynthesisProgress = 82;
+                SynthesisStatusText = "Dang tron song am tong hop (Master Composite Mixdown)...";
+                await Task.Delay(160);
+            }
+            catch { }
+            finally
+            {
+                SynthesisProgress = 100;
+                IsProcessing = false;
+            }
+            ExportMasterCompositeToWavFile_Core();
+        }
 
-                string currentPreview = Path.Combine(_outputDir, $"_studio_master_composite_{_masterPreviewToggleIdx}.wav");
-                cts.Cancel();
-
-                if (!File.Exists(currentPreview))
+        private void ExportMasterCompositeToWavFile_Core()
+        {
+            try
+            {
+                if (TimelineClips.Count == 0)
                 {
-                    SetReadyStatus();
+                    MessageBox.Show("Timeline đang trống! Hãy kéo thả bản ghi vào Layer trước khi xuất file.", "VoiceCraft Mini Studio", MessageBoxButton.OK, MessageBoxImage.Information);
                     return;
                 }
 
-                SynthesisProgress = 96;
-                SynthesisStatusText = "Đang dựng sóng âm thanh & hoàn tất file .WAV...";
+                RebuildMasterCompositeTimelineAudio();
+                string currentPreview = Path.Combine(_outputDir, $"_studio_master_composite_{_masterPreviewToggleIdx}.wav");
+                if (!File.Exists(currentPreview)) return;
 
                 string outName = $"VC_STUDIO_MIX_{StudioLayerCount}L_{DateTime.Now:HHmmss}.wav";
                 string outPath = Path.Combine(_outputDir, outName);
-                await Task.Run(() => File.Copy(currentPreview, outPath, true));
-
-                SynthesisProgress = 100;
-                SynthesisStatusText = "Hoàn tất 100%!";
-                await Task.Delay(120);
+                File.Copy(currentPreview, outPath, true);
 
                 ScanOutputRecordings();
                 var added = HistoryList.FirstOrDefault(x => string.Equals(x.FilePath, outPath, StringComparison.OrdinalIgnoreCase));
@@ -2485,23 +2580,12 @@ namespace VoiceCraft.App_Core.ViewModels
                 }
 
                 StudioStatusText = $"✨ Đã xuất bản ghi tổng hợp ({StudioLayerCount} Layer • {TotalDuration:0.00}s): {outName}";
-                SetReadyStatus();
-
-                if (AutoPlayAudio)
-                {
-                    PlayMasterCompositeAudio();
-                }
+                PlayMasterCompositeAudio();
             }
             catch (Exception ex)
             {
-                cts.Cancel();
-                SetErrorStatus("ERR_STUDIO_EXPORT");
                 Logger.Error("Lỗi xuất file tổng hợp", ex);
                 MessageBox.Show("Lỗi xuất file tổng hợp: " + ex.Message, "VoiceCraft Mini Studio", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-            finally
-            {
-                IsProcessing = false;
             }
         }
 

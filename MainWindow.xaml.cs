@@ -47,18 +47,6 @@ namespace VoiceCraft
             }
         }
 
-                private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.Key == Key.Space && Keyboard.FocusedElement is not TextBox)
-            {
-                if (DataContext is MainViewModel vm && !vm.IsProcessing && vm.PlayCommand.CanExecute(null))
-                {
-                    vm.TogglePlayPause();
-                    e.Handled = true;
-                }
-            }
-        }
-
         // Mở cửa sổ Mini Studio riêng biệt
         private void OpenMiniStudio_Click(object sender, RoutedEventArgs e)
         {

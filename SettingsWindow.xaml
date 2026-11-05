@@ -29,7 +29,7 @@
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0,0,0">
                         <TextBlock Text="⚙️ Cài đặt hệ thống, Sửa lỗi Model &amp; Giao diện VoiceCraft" Foreground="White" FontWeight="SemiBold" FontSize="14.5" VerticalAlignment="Center"/>
                         <Border Background="#20FFFFFF" CornerRadius="3" Padding="10,2" Margin="14,0,0,0" BorderBrush="#28FFFFFF" BorderThickness="1">
-                            <TextBlock Text="{Binding AppVersion, StringFormat={}v{0}, FallbackValue=v1.0.4}" Foreground="#D8ECFF" FontSize="11.5" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding AppVersion, StringFormat={}v{0}, FallbackValue=v1.0.3}" Foreground="#D8ECFF" FontSize="11.5" FontWeight="SemiBold"/>
                         </Border>
                     </StackPanel>
                     <Button Content="✕" Width="48" HorizontalAlignment="Right" Style="{StaticResource Win10CloseBtn}" Click="Close_Click"/>

@@ -35,13 +35,15 @@ namespace VoiceCraft.App_Core.Models
             set { _timelineStartSec = Math.Max(0.0, Math.Round(value, 3)); OnPropertyChanged(); }
         }
 
+        // Cho phép SourceTrimStartSec âm (< 0) khi người dùng kéo mở rộng rỗng về phía đầu (Left Empty Extension)
         private double _sourceTrimStartSec;
         public double SourceTrimStartSec
         {
             get => _sourceTrimStartSec;
-            set { _sourceTrimStartSec = Math.Max(0.0, Math.Round(value, 3)); OnPropertyChanged(); }
+            set { _sourceTrimStartSec = Math.Round(value, 3); OnPropertyChanged(); }
         }
 
+        // Cho phép DurationSec mở rộng vượt quá độ dài gốc (phần mở rộng thêm là rỗng/im lặng)
         private double _durationSec = 3.0;
         public double DurationSec
         {
@@ -51,18 +53,25 @@ namespace VoiceCraft.App_Core.Models
 
         public double SourceTotalDurationSec { get; set; } = 3.0;
 
-        // Mảng biên độ đỉnh gốc (PeaksPerSecond = 50) để khi thu gọn 2 đầu chỉ cắt ngắn sóng âm chứ KHÔNG thu nhỏ theo thị giác
+        private bool _isSelected;
+        public bool IsSelected
+        {
+            get => _isSelected;
+            set { _isSelected = value; OnPropertyChanged(); }
+        }
+
+        public bool HasEmptyExtension =>
+            SourceTrimStartSec < -0.02 || (SourceTrimStartSec + DurationSec) > (SourceTotalDurationSec + 0.02);
+
         public float[] SourcePeaks { get; set; } = Array.Empty<float>();
         public int PeaksPerSecond { get; set; } = 50;
 
-        // Mẫu âm thanh gốc (22050Hz Mono float32) và bộ đệm sau khi áp DSP để trộn đa Layer tức thì
         public float[] RawSamples22k { get; set; }
         public float[] ProcessedFullSamples22k { get; set; }
         public string LastDspSignature { get; set; } = "";
 
         public PointCollection MiniWaveform { get; set; } = new PointCollection();
 
-        // Thông số DSP riêng cho từng thành phần (Clip)
         public double Semitones { get; set; } = 0.0;
         public double Speed { get; set; } = 1.0;
         public bool CloneEnabled { get; set; } = false;
