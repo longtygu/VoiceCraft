@@ -1728,7 +1728,7 @@ namespace VoiceCraft.App_Core.ViewModels
 
                 // Dựng Sóng âm Tổng hợp của tất cả các Layer (StudioMasterWaveformPoints)
                 var masterPts = new PointCollection();
-                double wWidth = 1000.0, wHeight = 100.0, midY = 50.0;
+                double wWidth = 1000.0, midY = 50.0;
                 int samplesPerCol = Math.Max(1, masterMix.Length / (int)wWidth);
                 var topPts = new List<Point>(1024);
                 var botPts = new List<Point>(1024);
@@ -2515,8 +2515,8 @@ namespace VoiceCraft.App_Core.ViewModels
         public ICommand QuickCutKeepCommand => new RelayCommand((o) => RebuildMasterCompositeTimelineAudio());
         public ICommand QuickCutOutCommand => new RelayCommand((o) => RebuildMasterCompositeTimelineAudio());
         public ICommand QuickMergeRecordingsCommand => new RelayCommand((o) => RebuildMasterCompositeTimelineAudio());
-        public ICommand ApplyStudioOverwriteCommand => new RelayCommand((o) => ExportMasterCompositeToWavFile());
-        public ICommand ApplyStudioNewFileCommand => new RelayCommand((o) => ExportMasterCompositeToWavFile());
+        public ICommand ApplyStudioOverwriteCommand => new RelayCommand((o) => _ = ExportMasterCompositeToWavFileAsync());
+        public ICommand ApplyStudioNewFileCommand => new RelayCommand((o) => _ = ExportMasterCompositeToWavFileAsync());
 
         private async Task ExportMasterCompositeToWavFileAsync()
         {
