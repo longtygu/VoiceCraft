@@ -17,7 +17,9 @@ namespace VoiceCraft.App_Core.Services
             try
             {
                 var res = await _httpClient.GetAsync(PingUrl);
-                return res.IsSuccessStatusCode;
+                if (!res.IsSuccessStatusCode) return false;
+                string body = await res.Content.ReadAsStringAsync();
+                return body.Contains("4.0_capcut_dsp");
             }
             catch
             {
@@ -25,13 +27,38 @@ namespace VoiceCraft.App_Core.Services
             }
         }
 
-        public async Task<bool> StartEngineAsync()
+        private void KillExistingPort8000Process()
         {
-            if (await IsServerRunningAsync())
+            try
             {
-                Logger.Info("FastAPI Engine đã hoạt động sẵn tại 127.0.0.1:8000.");
+                if (_engineProcess != null && !_engineProcess.HasExited)
+                {
+                    _engineProcess.Kill(true);
+                    _engineProcess.Dispose();
+                    _engineProcess = null;
+                }
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = "/c \"for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :8000 ^| findstr LISTENING') do taskkill /F /PID %a\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using var p = Process.Start(psi);
+                p?.WaitForExit(2500);
+            }
+            catch { }
+        }
+
+        public async Task<bool> StartEngineAsync(bool forceRestart = false)
+        {
+            if (!forceRestart && await IsServerRunningAsync())
+            {
+                Logger.Info("FastAPI Engine v4.0_capcut_dsp đã sẵn sàng tại 127.0.0.1:8000.");
                 return true;
             }
+
+            KillExistingPort8000Process();
 
             try
             {
@@ -40,7 +67,6 @@ namespace VoiceCraft.App_Core.Services
                 string outputDir = Path.Combine(root, "Output");
                 Directory.CreateDirectory(outputDir);
 
-                // Tìm main.py tại thư mục hiện tại, ProjectRoot hoặc thư mục gốc
                 string scriptPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Engine", "main.py");
                 if (!File.Exists(scriptPath))
                     scriptPath = Path.Combine(root, "Engine", "main.py");

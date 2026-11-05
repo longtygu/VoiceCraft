@@ -1,5 +1,5 @@
 {
-  "SelectedAeroTheme": "\u0110en Tuy\u1EC1n (Pure Pitch Black)",
+  "SelectedAeroTheme": "\u0110en Kh\u00F3i Windows 10 (Obsidian Glass)",
   "SelectedAccentItem": "Xanh Aero Cyan (#00B4FF)",
   "SelectedWaveformColorItem": "Cam Ho\u00E0ng H\u00F4n (#FB923C)",
   "SelectedSecondaryLineColorItem": "V\u00E0ng Tia Ch\u1EDBp (#FFD600)",
@@ -89,7 +89,15 @@
       "EqTrebleDb": -3,
       "DeHissCutoff": 10000,
       "VitsNoiseScale": 0.9
+    },
+    "[VieNeu-TTS-24kHz] Gi\u1ECDng Nam Truy\u1EC1n C\u1EA3m (Vietnamese Neural Prosody)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 0,
+      "EqTrebleDb": 0,
+      "DeHissCutoff": 10000,
+      "VitsNoiseScale": 0.67
     }
   },
-  "GitHubRepo": "Longtygu/VoiceCraft"
+  "GitHubRepo": "https://github.com/longtygu/VoiceCraft"
 }

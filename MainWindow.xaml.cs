@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -13,6 +13,7 @@ namespace VoiceCraft
     {
         private bool _isDraggingWaveform;
         private SettingsWindow _settingsWindow;
+        private MiniStudioWindow _miniStudioWindow;
 
         public MainWindow()
         {
@@ -39,6 +40,43 @@ namespace VoiceCraft
                 try { _settingsWindow.Close(); } catch { }
                 _settingsWindow = null;
             }
+            if (_miniStudioWindow != null)
+            {
+                try { _miniStudioWindow.Close(); } catch { }
+                _miniStudioWindow = null;
+            }
+        }
+
+                private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Space && Keyboard.FocusedElement is not TextBox)
+            {
+                if (DataContext is MainViewModel vm && !vm.IsProcessing && vm.PlayCommand.CanExecute(null))
+                {
+                    vm.TogglePlayPause();
+                    e.Handled = true;
+                }
+            }
+        }
+
+        // Mở cửa sổ Mini Studio riêng biệt
+        private void OpenMiniStudio_Click(object sender, RoutedEventArgs e)
+        {
+            if (_miniStudioWindow != null && _miniStudioWindow.IsLoaded)
+            {
+                if (_miniStudioWindow.WindowState == WindowState.Minimized)
+                    _miniStudioWindow.WindowState = WindowState.Normal;
+                _miniStudioWindow.Activate();
+                return;
+            }
+
+            _miniStudioWindow = new MiniStudioWindow
+            {
+                Owner = this,
+                DataContext = this.DataContext
+            };
+            _miniStudioWindow.Closed += (s, args) => _miniStudioWindow = null;
+            _miniStudioWindow.Show();
         }
 
         // Mở cửa sổ Cài đặt riêng biệt từ nút Icon Bánh răng (⚙) trên thanh tiêu đề
@@ -112,19 +150,15 @@ namespace VoiceCraft
             double clampedX = Math.Clamp(pos.X, 0.0, width);
             double ratio = clampedX / width;
 
-            // Di chuyển Vạch phụ theo đúng vị trí chuột
             Canvas.SetLeft(SecondaryHoverLine, clampedX);
 
-            // Đặt vị trí nhãn bộ đếm thời gian phụ đi kèm vạch phụ (tránh tràn lề phải)
             double popupWidth = SecondaryTimePopup.ActualWidth > 10 ? SecondaryTimePopup.ActualWidth : 58;
             double popupLeft = (clampedX + popupWidth + 8 < width) ? (clampedX + 6) : Math.Max(2, clampedX - popupWidth - 6);
             Canvas.SetLeft(SecondaryTimePopup, popupLeft);
 
-            // Cập nhật thời gian của bộ đếm phụ
             double hoverSeconds = vm.TotalDuration > 0.05 ? (ratio * vm.TotalDuration) : 0.0;
             vm.HoverTimeText = MainViewModel.FormatTimeCode(hoverSeconds);
 
-            // Nếu người dùng đang giữ chuột trái kéo trên sóng âm -> tua trực tiếp Vạch chính theo Vạch phụ
             if (_isDraggingWaveform && e.LeftButton == MouseButtonState.Pressed && vm.TotalDuration > 0.05 && !vm.IsProcessing)
             {
                 vm.CurrentPosition = hoverSeconds;
@@ -207,12 +241,16 @@ namespace VoiceCraft
 
         private void Maximize_Click(object sender, RoutedEventArgs e)
         {
-            this.WindowState = this.WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+            this.WindowState = (this.WindowState == WindowState.Maximized) ? WindowState.Normal : WindowState.Maximized;
         }
 
         private void Close_Click(object sender, RoutedEventArgs e)
         {
-            this.Close();
+            if (DataContext is MainViewModel vm)
+            {
+                vm.Shutdown();
+            }
+            Application.Current.Shutdown();
         }
 
         #region Native Win32 Aero Blur Interop
@@ -250,10 +288,5 @@ namespace VoiceCraft
             WCA_ACCENT_POLICY = 19
         }
         #endregion
-
-        private void TextBox_TextChanged(object sender, TextChangedEventArgs e)
-        {
-
-        }
     }
 }

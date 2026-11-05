@@ -46,7 +46,6 @@ namespace VoiceCraft.App_Core.ViewModels
         public string SelectedModelFile { get; set; } = "Tự động theo vùng miền (Auto)";
         public int SpeakerId { get; set; } = -1;
         public bool BypassDsp { get; set; } = false;
-        public bool IsEqEnabled { get; set; } = false;
         public string SelectedGender { get; set; }
         public bool BilingualAuto { get; set; } = true;
         public bool SingleVoiceMode { get; set; } = true;
@@ -55,6 +54,7 @@ namespace VoiceCraft.App_Core.ViewModels
         public double Pitch { get; set; } = 1.0;
         public double Volume { get; set; } = 100.0;
         public bool IsVoiceCloneEnabled { get; set; } = false;
+        public bool IsEqPanelExpanded { get; set; } = false;
         public string CloneReferencePath { get; set; } = "";
         public double CloneStrength { get; set; } = 0.80;
         public double EqBassDb { get; set; } = 0.0;
@@ -62,7 +62,7 @@ namespace VoiceCraft.App_Core.ViewModels
         public double DeHissCutoff { get; set; } = 10000.0;
         public double VitsNoiseScale { get; set; } = 0.67;
         public Dictionary<string, ModelDspProfile> ModelProfiles { get; set; } = new Dictionary<string, ModelDspProfile>();
-        public string GitHubRepo { get; set; } = UpdateService.LockedGitHubRepoUrl;
+        public string GitHubRepo { get; set; } = "longtygu/VoiceCraft";
     }
 
     public class MainViewModel : INotifyPropertyChanged
@@ -80,6 +80,7 @@ namespace VoiceCraft.App_Core.ViewModels
         private bool _isLoadingSettings;
         private bool _isSwitchingModelProfile;
         private UpdateInfo _latestUpdateInfo;
+        private string _downloadedUpdateFilePath;
         private Dictionary<string, ModelDspProfile> _modelProfiles = new Dictionary<string, ModelDspProfile>();
 
         public string AppVersion => UpdateService.CurrentAppVersion;
@@ -110,13 +111,26 @@ namespace VoiceCraft.App_Core.ViewModels
             if (!Directory.Exists(_modelsDir)) Directory.CreateDirectory(_modelsDir);
             _settingsFilePath = Path.Combine(Logger.ProjectRoot, "settings.json");
 
-            Logger.Info("Ứng dụng VoiceCraft Studio v1.0.2 khởi động.");
+            Logger.Info($"Ứng dụng VoiceCraft v{AppVersion} khởi động.");
 
             SynthesizeCommand = new RelayCommand(async (o) => await SynthesizeAsync(), (o) => !IsProcessing && !string.IsNullOrWhiteSpace(InputText));
-            PlayCommand = new RelayCommand((o) => { _audioPlayer.Play(); _timer.Start(); }, (o) => !IsProcessing && !string.IsNullOrEmpty(_currentAudioPath));
-            PauseCommand = new RelayCommand((o) => { _audioPlayer.Pause(); _timer.Stop(); }, (o) => !IsProcessing && !string.IsNullOrEmpty(_currentAudioPath));
-            StopCommand = new RelayCommand((o) => { _audioPlayer.Stop(); _timer.Stop(); CurrentPosition = 0; UpdateTimeDisplay(); }, (o) => !IsProcessing && !string.IsNullOrEmpty(_currentAudioPath));
+            PlayCommand = new RelayCommand((o) => { StopHeadlessDemo(); _audioPlayer.Play(); _timer.Start(); }, (o) => !IsProcessing && !string.IsNullOrEmpty(_currentAudioPath));
+            PauseCommand = new RelayCommand((o) => { StopHeadlessDemo(); _audioPlayer.Pause(); _timer.Stop(); }, (o) => !IsProcessing && !string.IsNullOrEmpty(_currentAudioPath));
+            StopCommand = new RelayCommand((o) => { StopHeadlessDemo(); _audioPlayer.Stop(); _timer.Stop(); CurrentPosition = 0; UpdateTimeDisplay(); }, (o) => !IsProcessing && !string.IsNullOrEmpty(_currentAudioPath));
             SaveCommand = new RelayCommand(SaveFile, (o) => !IsProcessing && !string.IsNullOrEmpty(_currentAudioPath));
+
+            PasteTextCommand = new RelayCommand((o) =>
+            {
+                if (Clipboard.ContainsText())
+                    InputText = Clipboard.GetText();
+            });
+            ClearTextCommand = new RelayCommand((o) => InputText = "");
+
+            SwitchTabCommand = new RelayCommand((param) =>
+            {
+                string tab = param?.ToString() ?? "Studio";
+                IsSettingsOpen = (tab == "Settings");
+            });
 
             RefreshModelsCommand = new RelayCommand((o) => RefreshAvailableModels());
 
@@ -126,6 +140,7 @@ namespace VoiceCraft.App_Core.ViewModels
                     SpeakerId = Math.Clamp(SpeakerId + delta, -1, 903);
             });
 
+            // Chọn mẫu Nhái giọng và hiển thị ngay Sóng âm thanh lên trình phát phía dưới
             SelectCloneSampleCommand = new RelayCommand((o) =>
             {
                 var dlg = new OpenFileDialog
@@ -137,7 +152,10 @@ namespace VoiceCraft.App_Core.ViewModels
                 {
                     CloneReferencePath = dlg.FileName;
                     IsVoiceCloneEnabled = true;
-                    LoadSampleWaveformToPlayer(dlg.FileName);
+                    StudioCloneEnabled = true;
+                    SyncInspectorToSelectedClip();
+                    LoadAudioAndWaveformToTimeline(CloneReferencePath);
+                    StudioStatusText = $"🧬 Đã nạp mẫu giọng: {Path.GetFileName(CloneReferencePath)}";
                 }
             });
 
@@ -145,7 +163,7 @@ namespace VoiceCraft.App_Core.ViewModels
             {
                 if (!string.IsNullOrEmpty(CloneReferencePath) && File.Exists(CloneReferencePath))
                 {
-                    LoadSampleWaveformToPlayer(CloneReferencePath);
+                    LoadAudioAndWaveformToTimeline(CloneReferencePath);
                     _audioPlayer.Play();
                     _timer.Start();
                 }
@@ -154,6 +172,7 @@ namespace VoiceCraft.App_Core.ViewModels
             ClearCloneSampleCommand = new RelayCommand((o) =>
             {
                 CloneReferencePath = "";
+                IsVoiceCloneEnabled = false;
             });
 
             ResetEqCommand = new RelayCommand((o) =>
@@ -186,14 +205,13 @@ namespace VoiceCraft.App_Core.ViewModels
                     Pitch = val;
             });
 
-            RestartEngineCommand = new RelayCommand(async (o) => await InitializeEngineAsync());
-            RepairAndDownloadModelsCommand = new RelayCommand(async (o) => await RepairAndDownloadModelsAsync(), (o) => !IsRepairingModels);
-            HideRepairPanelCommand = new RelayCommand((o) => IsRepairPanelOpen = false);
-
+            RestartEngineCommand = new RelayCommand(async (o) => await InitializeEngineAsync(true));
             OpenFolderCommand = new RelayCommand((param) =>
             {
                 string target = param?.ToString();
-                string folder = target == "Models" ? _modelsDir : _outputDir;
+                string folder = target == "Models" ? _modelsDir
+                              : target == "Updates" ? Path.Combine(Logger.ProjectRoot, "Updates")
+                              : _outputDir;
                 if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
                 Process.Start("explorer.exe", folder);
             });
@@ -203,10 +221,14 @@ namespace VoiceCraft.App_Core.ViewModels
                 try
                 {
                     _audioPlayer.Stop();
+                    _timer.Stop();
                     int count = 0;
-                    foreach (var f in Directory.GetFiles(_outputDir, "*.wav"))
+                    if (Directory.Exists(_outputDir))
                     {
-                        try { File.Delete(f); count++; } catch { }
+                        foreach (var f in Directory.GetFiles(_outputDir, "*.wav"))
+                        {
+                            try { File.Delete(f); count++; } catch { }
+                        }
                     }
                     HistoryList.Clear();
                     _currentAudioPath = null;
@@ -214,33 +236,34 @@ namespace VoiceCraft.App_Core.ViewModels
                     TotalDuration = 0;
                     CurrentPosition = 0;
                     UpdateTimeDisplay();
-                    MessageBox.Show($"Đã dọn dẹp {count} file âm thanh trong thư mục Output!", "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show($"Đã dọn dẹp sạch {count} file âm thanh trong thư mục Output!", "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
-                catch (Exception ex) { Logger.Error("Lỗi dọn Output", ex); }
+                catch (Exception ex) { Logger.Error("Lỗi dọn dẹp Output", ex); }
             });
 
-            CopyGitHubRepoCommand = new RelayCommand((o) =>
-            {
-                try
-                {
-                    Clipboard.SetText(UpdateService.LockedGitHubRepoUrl);
-                    UpdateStatusText = "📋 Đã sao chép đường dẫn GitHub vào Clipboard!";
-                }
-                catch { }
-            });
-
+            RepairAndDownloadModelsCommand = new RelayCommand(async (o) => await RepairAndDownloadModelsAsync(), (o) => !IsRepairingModels);
             CheckUpdateCommand = new RelayCommand(async (o) => await CheckForUpdateAsync(), (o) => !IsCheckingUpdate && !IsDownloadingUpdate);
             DownloadUpdateCommand = new RelayCommand(async (o) => await DownloadUpdateAsync(), (o) => !IsDownloadingUpdate && IsUpdateAvailable);
+            OpenUpdateFolderCommand = new RelayCommand((o) => _updateService.OpenUpdateFolderOrFile(_downloadedUpdateFilePath));
 
             RefreshAvailableModels();
             LoadSettings();
+            // Đảm bảo mặc định Tab 2 và Tab 3 luôn thu gọn khi khởi động theo yêu cầu
+            _isVoiceCloneEnabled = false;
+            _isEqPanelExpanded = false;
+            OnPropertyChanged(nameof(IsVoiceCloneEnabled));
+            OnPropertyChanged(nameof(VoiceClonePanelVisibility));
+            OnPropertyChanged(nameof(IsEqPanelExpanded));
+            OnPropertyChanged(nameof(EqPanelVisibility));
+
             UpdateSelectedModelInfo();
             UpdateThemeBrushes();
             UpdateTimeDisplay();
+            ScanOutputRecordings();
             _ = InitializeEngineAsync();
         }
 
-        private void LoadSampleWaveformToPlayer(string filePath)
+        private void LoadAudioAndWaveformToTimeline(string filePath)
         {
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return;
             try
@@ -257,62 +280,11 @@ namespace VoiceCraft.App_Core.ViewModels
             }
             catch (Exception ex)
             {
-                Logger.Error("Lỗi nạp sóng âm file mẫu", ex);
+                Logger.Error("Lỗi nạp sóng âm thanh vào Timeline", ex);
             }
         }
 
-        // --- TRANG THAI MODEL SAN SANG (XANH LA - KHONG POPUP) / LOI MODEL (DO PHAT SANG NHAP NHAY + CO POPUP) ---
-        private bool _isModelError = false;
-        public bool IsModelError
-        {
-            get => _isModelError;
-            set { _isModelError = value; OnPropertyChanged(); }
-        }
-
-        private string _statusBadgeBackground = "#3800C853";
-        public string StatusBadgeBackground
-        {
-            get => _statusBadgeBackground;
-            set { _statusBadgeBackground = value; OnPropertyChanged(); }
-        }
-
-        private string _statusBadgeBorder = "#AA00E676";
-        public string StatusBadgeBorder
-        {
-            get => _statusBadgeBorder;
-            set { _statusBadgeBorder = value; OnPropertyChanged(); }
-        }
-
-        private string _statusTextForeground = "#E8FFF0";
-        public string StatusTextForeground
-        {
-            get => _statusTextForeground;
-            set { _statusTextForeground = value; OnPropertyChanged(); }
-        }
-
-        public string StatusPopupText => "thử tải lại và sửa lỗi model trong cài đặt";
-
-        private void SetReadyStatus()
-        {
-            IsModelError = false;
-            ConnectionStatus = "Model sẵn sàng";
-            ConnectionColor = "#00E676";
-            StatusBadgeBackground = "#3800C853";
-            StatusBadgeBorder = "#AA00E676";
-            StatusTextForeground = "#E8FFF0";
-        }
-
-        private void SetErrorStatus(string errorCode)
-        {
-            IsModelError = true;
-            ConnectionStatus = $"Lỗi Model - mã lỗi {errorCode}";
-            ConnectionColor = "#FF1744";
-            StatusBadgeBackground = "#88FF1744";
-            StatusBadgeBorder = "#FFFF1744";
-            StatusTextForeground = "#FFFFFF";
-        }
-
-        // --- TAB 1: CHON MODEL & AN/HIEN VUNG MIEN + GIOI TINH ---
+        // --- TAB 1: CHỌN MODEL & ẨN/HIỆN VÙNG MIỀN + GIỚI TÍNH ---
         public ObservableCollection<string> AvailableModels { get; } = new ObservableCollection<string>();
 
         private string _selectedModelFile = "Tự động theo vùng miền (Auto)";
@@ -327,6 +299,7 @@ namespace VoiceCraft.App_Core.ViewModels
                 SaveCurrentModelProfile();
                 _selectedModelFile = nextVal;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(IsAutoModelSelected));
                 OnPropertyChanged(nameof(AutoModelOptionsVisibility));
                 LoadProfileForModel(_selectedModelFile);
                 UpdateSelectedModelInfo();
@@ -334,12 +307,10 @@ namespace VoiceCraft.App_Core.ViewModels
             }
         }
 
-        public Visibility AutoModelOptionsVisibility =>
-            (string.IsNullOrEmpty(SelectedModelFile) || SelectedModelFile.Contains("(Auto)"))
-                ? Visibility.Visible
-                : Visibility.Collapsed;
+        public bool IsAutoModelSelected => string.IsNullOrEmpty(SelectedModelFile) || SelectedModelFile == "Tự động theo vùng miền (Auto)";
+        public Visibility AutoModelOptionsVisibility => IsAutoModelSelected ? Visibility.Visible : Visibility.Collapsed;
 
-        private string _selectedModelInfoText = "Chế độ Tự động: Tự chọn model theo vùng miền và giới tính.";
+        private string _selectedModelInfoText = "Chế độ Tự động: Tự chọn model theo vùng miền & giới tính.";
         public string SelectedModelInfoText
         {
             get => _selectedModelInfoText;
@@ -360,7 +331,14 @@ namespace VoiceCraft.App_Core.ViewModels
         }
         public string SpeakerIdDisplay => SpeakerId < 0 ? "Auto (-1)" : $"ID: {SpeakerId}";
 
-        // --- TAB 2: NHAI GIONG AI (THU GON MAC DINH, MO RONG KHI GAT BAT) ---
+        private bool _bypassDsp = false;
+        public bool BypassDsp
+        {
+            get => _bypassDsp;
+            set { _bypassDsp = value; OnPropertyChanged(); SaveSettings(); }
+        }
+
+        // --- TAB 2: NHÁI GIỌNG AI (MẶC ĐỊNH THU GỌN, CHỈ MỞ KHI BẬT CÔNG TẮC) ---
         private bool _isVoiceCloneEnabled = false;
         public bool IsVoiceCloneEnabled
         {
@@ -406,27 +384,20 @@ namespace VoiceCraft.App_Core.ViewModels
         }
         public string CloneStrengthPercent => $"{(int)(CloneStrength * 100)}%";
 
-        // --- TAB 3: BO LOC EQ THEO MODEL (THU GON MAC DINH, MO RONG KHI GAT BAT) ---
-        private bool _isEqEnabled = false;
-        public bool IsEqEnabled
+        // --- TAB 3: BỘ LỌC EQ (MẶC ĐỊNH THU GỌN, CHỈ MỞ KHI BẬT CÔNG TẮC) ---
+        private bool _isEqPanelExpanded = false;
+        public bool IsEqPanelExpanded
         {
-            get => _isEqEnabled;
+            get => _isEqPanelExpanded;
             set
             {
-                _isEqEnabled = value;
+                _isEqPanelExpanded = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(EqPanelVisibility));
                 SaveSettings();
             }
         }
-        public Visibility EqPanelVisibility => IsEqEnabled ? Visibility.Visible : Visibility.Collapsed;
-
-        private bool _bypassDsp = false;
-        public bool BypassDsp
-        {
-            get => _bypassDsp;
-            set { _bypassDsp = value; OnPropertyChanged(); SaveSettings(); }
-        }
+        public Visibility EqPanelVisibility => IsEqPanelExpanded ? Visibility.Visible : Visibility.Collapsed;
 
         private double _eqBassDb = 0.0;
         public double EqBassDb
@@ -486,7 +457,7 @@ namespace VoiceCraft.App_Core.ViewModels
             }
         }
 
-        // --- TAB RIENG TRONG CAI DAT: SUA LOI & QUET MODEL AI (CHI HIEN KHI BAM NUT + CO NUT AN DI) ---
+        // --- TRÌNH SỬA & TẢI MODEL TỰ ĐỘNG TRONG SETTINGS ---
         private bool _isRepairingModels;
         public bool IsRepairingModels
         {
@@ -495,22 +466,10 @@ namespace VoiceCraft.App_Core.ViewModels
             {
                 _isRepairingModels = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(ModelRepairProgressVisibility));
                 CommandManager.InvalidateRequerySuggested();
             }
         }
-
-        private bool _isRepairPanelOpen = false;
-        public bool IsRepairPanelOpen
-        {
-            get => _isRepairPanelOpen;
-            set
-            {
-                _isRepairPanelOpen = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(ModelRepairVisibility));
-            }
-        }
-        public Visibility ModelRepairVisibility => IsRepairPanelOpen ? Visibility.Visible : Visibility.Collapsed;
 
         private double _modelRepairProgress;
         public double ModelRepairProgress
@@ -521,106 +480,114 @@ namespace VoiceCraft.App_Core.ViewModels
                 _modelRepairProgress = Math.Clamp(value, 0, 100);
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(ModelRepairProgressPercent));
+                OnPropertyChanged(nameof(ModelRepairProgressVisibility));
             }
         }
         public string ModelRepairProgressPercent => $"{(int)ModelRepairProgress}%";
+        public Visibility ModelRepairProgressVisibility => (IsRepairingModels || ModelRepairProgress > 0) ? Visibility.Visible : Visibility.Collapsed;
 
-        private string _modelRepairStatusText = "Đang chờ lệnh quét và sửa lỗi Model...";
-        public string ModelRepairStatusText
+        private string _modelRepairLogText = "Nhấn '🔧 Sửa & Tải Model tự động' để kiểm tra và tải đầy đủ các bộ Model AI về máy.";
+        public string ModelRepairLogText
         {
-            get => _modelRepairStatusText;
-            set { _modelRepairStatusText = value; OnPropertyChanged(); }
+            get => _modelRepairLogText;
+            set { _modelRepairLogText = value; OnPropertyChanged(); }
         }
 
-        private string _modelRepairDetailLog = "";
-        public string ModelRepairDetailLog
+        private void AppendRepairLog(string line)
         {
-            get => _modelRepairDetailLog;
-            set { _modelRepairDetailLog = value; OnPropertyChanged(); }
-        }
-
-        private void AppendRepairLog(string stepMsg)
-        {
-            string line = $"[{DateTime.Now:HH:mm:ss}] {stepMsg}";
             Application.Current?.Dispatcher?.Invoke(() =>
             {
-                ModelRepairStatusText = stepMsg;
-                ModelRepairDetailLog = string.IsNullOrEmpty(ModelRepairDetailLog)
-                    ? line
-                    : ModelRepairDetailLog + Environment.NewLine + line;
+                ModelRepairLogText += $"\n[{DateTime.Now:HH:mm:ss}] {line}";
             });
         }
 
         private async Task RepairAndDownloadModelsAsync()
         {
-            IsRepairPanelOpen = true;
+            IsModelRepairDrawerExpanded = true;
             IsRepairingModels = true;
-            ModelRepairProgress = 5;
-            ModelRepairDetailLog = "";
-            AppendRepairLog("⏳ Bắt đầu quét và kiểm tra toàn bộ hệ thống Model AI...");
+            ModelRepairProgress = 2;
+            ModelRepairLogText = $"[{DateTime.Now:HH:mm:ss}] Bắt đầu kiểm tra & sửa chữa hệ thống Model AI...";
 
             try
             {
-                await Task.Delay(150);
-                ModelRepairProgress = 12;
-                AppendRepairLog($"📂 Thư mục Models: {_modelsDir}");
+                string kokoroDir = Path.Combine(_modelsDir, "kokoro_24k");
+                Directory.CreateDirectory(_modelsDir);
+                Directory.CreateDirectory(kokoroDir);
 
-                string setupScript = Path.Combine(Logger.ProjectRoot, "setup_models.ps1");
-                if (File.Exists(setupScript))
+                var downloadList = new List<(string Name, string Url, string DestPath, long MinSize)>
                 {
-                    AppendRepairLog("🔧 Chạy kịch bản kiểm tra thư viện Python & Model (setup_models.ps1)...");
-                    var psi = new ProcessStartInfo
+                    ("Kokoro-82M 24kHz (kokoro-v1.0.onnx)", "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx", Path.Combine(kokoroDir, "kokoro-v1.0.onnx"), 10_000_000),
+                    ("Kokoro 54 Voices (voices-v1.0.bin)", "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin", Path.Combine(kokoroDir, "voices-v1.0.bin"), 1_000_000),
+                    ("Tiếng Việt Miền Bắc (vais1000-medium.onnx)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx?download=true", Path.Combine(_modelsDir, "bac_vi_VN-vais1000-medium.onnx"), 5_000_000),
+                    ("Cấu hình Miền Bắc (vais1000-medium.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx.json?download=true", Path.Combine(_modelsDir, "bac_vi_VN-vais1000-medium.onnx.json"), 100),
+                    ("Tiếng Việt Miền Trung (25hours_single-low.onnx)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/25hours_single/low/vi_VN-25hours_single-low.onnx?download=true", Path.Combine(_modelsDir, "trung_vi_VN-25hours_single-low.onnx"), 5_000_000),
+                    ("Cấu hình Miền Trung (25hours_single-low.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/25hours_single/low/vi_VN-25hours_single-low.onnx.json?download=true", Path.Combine(_modelsDir, "trung_vi_VN-25hours_single-low.onnx.json"), 100),
+                    ("Tiếng Việt Miền Nam (vivos-x_low.onnx)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vivos/x_low/vi_VN-vivos-x_low.onnx?download=true", Path.Combine(_modelsDir, "nam_vi_VN-vivos-x_low.onnx"), 5_000_000),
+                    ("Cấu hình Miền Nam (vivos-x_low.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vivos/x_low/vi_VN-vivos-x_low.onnx.json?download=true", Path.Combine(_modelsDir, "nam_vi_VN-vivos-x_low.onnx.json"), 100),
+                    ("English Nữ High (en_US-lessac-high.onnx)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/high/en_US-lessac-high.onnx?download=true", Path.Combine(_modelsDir, "en_female_hi_en_US-lessac-high.onnx"), 5_000_000),
+                    ("Cấu hình Lessac High (.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/high/en_US-lessac-high.onnx.json?download=true", Path.Combine(_modelsDir, "en_female_hi_en_US-lessac-high.onnx.json"), 100),
+                    ("English Nam High (en_US-ryan-high.onnx)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high.onnx?download=true", Path.Combine(_modelsDir, "en_male_hi_en_US-ryan-high.onnx"), 5_000_000),
+                    ("Cấu hình Ryan High (.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high.onnx.json?download=true", Path.Combine(_modelsDir, "en_male_hi_en_US-ryan-high.onnx.json"), 100)
+                };
+
+                int totalItems = downloadList.Count;
+                for (int i = 0; i < totalItems; i++)
+                {
+                    var item = downloadList[i];
+                    double basePct = (i * 85.0) / totalItems;
+                    ModelRepairProgress = Math.Max(5, basePct);
+
+                    if (File.Exists(item.DestPath) && new FileInfo(item.DestPath).Length >= item.MinSize)
                     {
-                        FileName = "powershell.exe",
-                        Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{setupScript}\"",
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        CreateNoWindow = true
-                    };
-                    using var proc = Process.Start(psi);
-                    while (!proc.HasExited)
+                        AppendRepairLog($"✔ Đã chuẩn: {item.Name}");
+                        continue;
+                    }
+
+                    AppendRepairLog($"⏳ Đang tải: {item.Name}...");
+                    using var resp = await _httpClient.GetAsync(item.Url, HttpCompletionOption.ResponseHeadersRead);
+                    resp.EnsureSuccessStatusCode();
+                    long? len = resp.Content.Headers.ContentLength;
+                    using var stream = await resp.Content.ReadAsStreamAsync();
+                    using var fs = new FileStream(item.DestPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
+                    byte[] buf = new byte[81920];
+                    long readTotal = 0;
+                    int r;
+                    while ((r = await stream.ReadAsync(buf, 0, buf.Length)) > 0)
                     {
-                        string line = await proc.StandardOutput.ReadLineAsync();
-                        if (!string.IsNullOrWhiteSpace(line))
+                        await fs.WriteAsync(buf, 0, r);
+                        readTotal += r;
+                        if (len.HasValue && len.Value > 0)
                         {
-                            ModelRepairProgress = Math.Min(78, ModelRepairProgress + 7);
-                            AppendRepairLog("   -> " + line.Trim());
+                            double subPct = (double)readTotal / len.Value * (85.0 / totalItems);
+                            ModelRepairProgress = Math.Min(90, basePct + subPct);
                         }
                     }
+                    AppendRepairLog($"✅ Tải xong: {item.Name} ({Math.Round(readTotal / 1048576.0, 2)} MB)");
                 }
-                else
+
+                AppendRepairLog("⏳ Đang kiểm tra các gói thư viện Python (edge-tts, kokoro-onnx, pedalboard, cmudict)...");
+                ModelRepairProgress = 92;
+                await Task.Run(() =>
                 {
-                    ModelRepairProgress = 45;
-                    AppendRepairLog("✔ Kiểm tra các gói ONNX Runtime, Kokoro-82M, Meta MMS & Edge Neural...");
-                    await Task.Delay(300);
-                }
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = "python",
+                        Arguments = "-m pip install edge-tts kokoro-onnx miniaudio pedalboard cmudict scipy numpy piper-tts onnxruntime fastapi uvicorn pydantic",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    using var p = Process.Start(psi);
+                    p?.WaitForExit(120000);
+                });
 
-                ModelRepairProgress = 82;
-                int onnxCount = Directory.Exists(_modelsDir) ? Directory.GetFiles(_modelsDir, "*.onnx").Length : 0;
-                bool hasKokoro = File.Exists(Path.Combine(_modelsDir, "kokoro_24k", "kokoro-v1.0.onnx"));
-                bool hasMms = File.Exists(Path.Combine(_modelsDir, "mms_vie_male", "config.json"));
-                AppendRepairLog($"📊 Kết quả quét kho Model: {onnxCount} file Piper ONNX | Kokoro-82M: {(hasKokoro ? "OK" : "Thiếu")} | Meta MMS: {(hasMms ? "OK" : "Thiếu")}");
-
-                ModelRepairProgress = 90;
-                AppendRepairLog("🔄 Đang làm mới danh sách Model và khởi động lại TTS Engine (cổng 8000)...");
                 RefreshAvailableModels();
-                await InitializeEngineAsync();
-
                 ModelRepairProgress = 100;
-                if (!IsModelError)
-                {
-                    AppendRepairLog("✅ HOÀN TẤT 100%: Tất cả Model và TTS Engine đã sẵn sàng hoạt động!");
-                }
-                else
-                {
-                    AppendRepairLog("⚠️ Cảnh báo: Engine chưa phản hồi tại cổng 8000. Vui lòng kiểm tra Python.");
-                }
+                AppendRepairLog("🎉 HOÀN TẤT! Toàn bộ Model và thư viện đã sẵn sàng 100%.");
             }
             catch (Exception ex)
             {
-                AppendRepairLog("❌ Lỗi trong quá trình quét và sửa Model: " + ex.Message);
-                SetErrorStatus("ERR_REPAIR_MODEL");
+                AppendRepairLog($"❌ Lỗi: {ex.Message}");
+                Logger.Error("Lỗi sửa & tải Model tự động", ex);
             }
             finally
             {
@@ -656,6 +623,30 @@ namespace VoiceCraft.App_Core.ViewModels
                     _eqTrebleDb = Math.Clamp(prof.EqTrebleDb, -12.0, 12.0);
                     _deHissCutoff = Math.Clamp(prof.DeHissCutoff, 4000.0, 12000.0);
                     _vitsNoiseScale = Math.Clamp(prof.VitsNoiseScale, 0.10, 1.00);
+                }
+                else
+                {
+                    if (modelKey.Contains("25hours") || modelKey.Contains("vivos"))
+                    {
+                        _eqBassDb = 2.0;
+                        _eqTrebleDb = 1.5;
+                        _deHissCutoff = 7500.0;
+                        _vitsNoiseScale = 0.55;
+                    }
+                    else if (modelKey.StartsWith("[VieNeu-TTS") || modelKey.StartsWith("[VietTTS"))
+                    {
+                        _eqBassDb = 2.0;
+                        _eqTrebleDb = 1.5;
+                        _deHissCutoff = 10500.0;
+                        _vitsNoiseScale = 0.67;
+                    }
+                    else
+                    {
+                        _eqBassDb = 0.0;
+                        _eqTrebleDb = 0.0;
+                        _deHissCutoff = 10000.0;
+                        _vitsNoiseScale = 0.67;
+                    }
                 }
                 OnPropertyChanged(nameof(Speed));
                 OnPropertyChanged(nameof(Pitch));
@@ -733,20 +724,21 @@ namespace VoiceCraft.App_Core.ViewModels
                 _selectedModelFile = "Tự động theo vùng miền (Auto)";
 
             OnPropertyChanged(nameof(SelectedModelFile));
+            OnPropertyChanged(nameof(IsAutoModelSelected));
             OnPropertyChanged(nameof(AutoModelOptionsVisibility));
             UpdateSelectedModelInfo();
         }
 
         private void UpdateSelectedModelInfo()
         {
-            if (string.IsNullOrEmpty(SelectedModelFile) || SelectedModelFile.Contains("(Auto)"))
+            if (IsAutoModelSelected)
             {
-                SelectedModelInfoText = "Tự động phối hợp Model theo Vùng miền và Giới tính.";
+                SelectedModelInfoText = "Tự động phối hợp Model theo Vùng miền & Giới tính.";
                 return;
             }
             if (SelectedModelFile.StartsWith("[VieNeu-TTS-24kHz]"))
             {
-                SelectedModelInfoText = "Engine: VieNeu-TTS 24000 Hz | Tối ưu ngữ điệu 6 thanh Tiếng Việt.";
+                SelectedModelInfoText = "Engine: VieNeu-TTS 24000 Hz | Tối ưu ngữ điệu 6 thanh Tiếng Việt & Nối âm tự nhiên.";
                 return;
             }
             if (SelectedModelFile.StartsWith("[VietTTS-HiFiGAN]"))
@@ -756,7 +748,7 @@ namespace VoiceCraft.App_Core.ViewModels
             }
             if (SelectedModelFile.StartsWith("[Multilingual-24kHz]"))
             {
-                SelectedModelInfoText = "Engine: Neural Multilingual 24000 Hz | Đọc trực tiếp Việt và Anh bằng 1 giọng duy nhất.";
+                SelectedModelInfoText = "Engine: Neural Multilingual 24000 Hz | Đọc trực tiếp Việt & Anh bằng 1 giọng duy nhất.";
                 return;
             }
             if (SelectedModelFile.StartsWith("[Neural-24kHz]"))
@@ -805,10 +797,10 @@ namespace VoiceCraft.App_Core.ViewModels
                 var data = JsonSerializer.Deserialize<UserSettingsData>(json);
                 if (data != null)
                 {
-                    if (!string.IsNullOrEmpty(data.SelectedAeroTheme)) _selectedAeroTheme = data.SelectedAeroTheme;
-                    if (!string.IsNullOrEmpty(data.SelectedAccentItem)) _selectedAccentItem = data.SelectedAccentItem;
-                    if (!string.IsNullOrEmpty(data.SelectedWaveformColorItem)) _selectedWaveformColorItem = data.SelectedWaveformColorItem;
-                    if (!string.IsNullOrEmpty(data.SelectedSecondaryLineColorItem)) _selectedSecondaryLineColorItem = data.SelectedSecondaryLineColorItem;
+                    _selectedAeroTheme = (!string.IsNullOrEmpty(data.SelectedAeroTheme) && AeroThemes.Contains(data.SelectedAeroTheme)) ? data.SelectedAeroTheme : AeroThemes[2];
+                    _selectedAccentItem = (!string.IsNullOrEmpty(data.SelectedAccentItem) && AccentColorList.Contains(data.SelectedAccentItem)) ? data.SelectedAccentItem : AccentColorList[0];
+                    _selectedWaveformColorItem = (!string.IsNullOrEmpty(data.SelectedWaveformColorItem) && WaveformColorList.Contains(data.SelectedWaveformColorItem)) ? data.SelectedWaveformColorItem : WaveformColorList[0];
+                    _selectedSecondaryLineColorItem = (!string.IsNullOrEmpty(data.SelectedSecondaryLineColorItem) && SecondaryLineColorList.Contains(data.SelectedSecondaryLineColorItem)) ? data.SelectedSecondaryLineColorItem : SecondaryLineColorList[0];
                     _glassOpacity = Math.Clamp(data.GlassOpacity, 0.25, 1.0);
                     _cardOpacity = Math.Clamp(data.CardOpacity, 0.15, 0.95);
                     _showAeroReflection = data.ShowAeroReflection;
@@ -818,7 +810,6 @@ namespace VoiceCraft.App_Core.ViewModels
                         _selectedModelFile = data.SelectedModelFile;
                     _speakerId = Math.Clamp(data.SpeakerId, -1, 903);
                     _bypassDsp = data.BypassDsp;
-                    _isEqEnabled = data.IsEqEnabled;
                     if (!string.IsNullOrEmpty(data.SelectedGender)) _selectedGender = data.SelectedGender;
                     _bilingualAuto = data.BilingualAuto;
                     _singleVoiceMode = data.SingleVoiceMode;
@@ -827,13 +818,13 @@ namespace VoiceCraft.App_Core.ViewModels
                     _pitch = Math.Clamp(data.Pitch, 0.5, 2.0);
                     _volume = Math.Clamp(data.Volume, 0, 100);
                     _audioPlayer.Volume = (float)(_volume / 100.0);
-                    _isVoiceCloneEnabled = data.IsVoiceCloneEnabled;
                     _cloneReferencePath = data.CloneReferencePath ?? "";
                     _cloneStrength = Math.Clamp(data.CloneStrength, 0.0, 1.0);
                     _eqBassDb = Math.Clamp(data.EqBassDb, -12.0, 12.0);
                     _eqTrebleDb = Math.Clamp(data.EqTrebleDb, -12.0, 12.0);
                     _deHissCutoff = Math.Clamp(data.DeHissCutoff, 4000.0, 12000.0);
                     _vitsNoiseScale = Math.Clamp(data.VitsNoiseScale, 0.10, 1.00);
+                    if (!string.IsNullOrEmpty(data.GitHubRepo)) _gitHubRepo = data.GitHubRepo;
                 }
             }
             catch (Exception ex) { Logger.Error("Không thể đọc settings.json", ex); }
@@ -858,7 +849,6 @@ namespace VoiceCraft.App_Core.ViewModels
                     SelectedModelFile = SelectedModelFile,
                     SpeakerId = SpeakerId,
                     BypassDsp = BypassDsp,
-                    IsEqEnabled = IsEqEnabled,
                     SelectedGender = SelectedGender,
                     BilingualAuto = BilingualAuto,
                     SingleVoiceMode = SingleVoiceMode,
@@ -867,6 +857,7 @@ namespace VoiceCraft.App_Core.ViewModels
                     Pitch = Pitch,
                     Volume = Volume,
                     IsVoiceCloneEnabled = IsVoiceCloneEnabled,
+                    IsEqPanelExpanded = IsEqPanelExpanded,
                     CloneReferencePath = CloneReferencePath,
                     CloneStrength = CloneStrength,
                     EqBassDb = EqBassDb,
@@ -874,7 +865,7 @@ namespace VoiceCraft.App_Core.ViewModels
                     DeHissCutoff = DeHissCutoff,
                     VitsNoiseScale = VitsNoiseScale,
                     ModelProfiles = _modelProfiles,
-                    GitHubRepo = UpdateService.LockedGitHubRepoUrl
+                    GitHubRepo = GitHubRepo
                 };
                 string json = JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(_settingsFilePath, json);
@@ -915,6 +906,22 @@ namespace VoiceCraft.App_Core.ViewModels
                 : "0%";
         }
 
+        private bool _isSettingsOpen;
+        public bool IsSettingsOpen
+        {
+            get => _isSettingsOpen;
+            set
+            {
+                _isSettingsOpen = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(StudioVisibility));
+                OnPropertyChanged(nameof(SettingsVisibility));
+            }
+        }
+        public Visibility StudioVisibility => IsSettingsOpen ? Visibility.Collapsed : Visibility.Visible;
+        public Visibility SettingsVisibility => IsSettingsOpen ? Visibility.Visible : Visibility.Collapsed;
+
+        // --- MÀU SẮC & GIAO DIỆN (ĐÃ BỔ SUNG MÀU ĐEN & XÁM) ---
         private double _glassOpacity = 0.85;
         public double GlassOpacity
         {
@@ -960,15 +967,15 @@ namespace VoiceCraft.App_Core.ViewModels
         public Visibility AeroReflectionVisibility => ShowAeroReflection ? Visibility.Visible : Visibility.Collapsed;
 
         public string[] AeroThemes { get; } = {
-            "Đen Tuyền Studio (Pure Pitch Black)",
-            "Xám Khói Hiện Đại (Modern Charcoal Gray)",
+            "Đen Tuyền (Pure Pitch Black)",
+            "Xám Chuẩn (Neutral Charcoal Gray)",
             "Đen Khói Windows 10 (Obsidian Glass)",
+            "Xám Bạc Hiện Đại (Frosted Slate)",
             "Xanh Băng Windows 7 (Aero Ice Blue)",
             "Xanh Đại Dương Sâu (Deep Ocean Glass)",
             "Xanh Ngọc Lục Bảo (Emerald Glass)",
             "Tím Pha Lê Đêm (Royal Amethyst)",
-            "Đỏ Hồng Ngọc (Crimson Ruby Glass)",
-            "Xám Bạc Hiện Đại (Frosted Slate)"
+            "Đỏ Hồng Ngọc (Crimson Ruby Glass)"
         };
         private string _selectedAeroTheme = "Đen Khói Windows 10 (Obsidian Glass)";
         public string SelectedAeroTheme
@@ -981,11 +988,12 @@ namespace VoiceCraft.App_Core.ViewModels
             "Xanh Windows 10 (#0078D4)",
             "Xanh Aero Cyan (#00B4FF)",
             "Xanh Ngọc Lục Bảo (#10B981)",
+            "Xám Kim Loại (#64748B)",
+            "Đen Tuyền Viền Sáng (#27272A)",
             "Tím Hiện Đại (#8B5CF6)",
             "Đỏ Hồng Ruby (#F43F5E)",
             "Vàng Hổ Phách (#F59E0B)",
-            "Xám Thép Trung Tính (#64748B)",
-            "Đen Carbon (#27272A)"
+            "Xanh Băng Sáng (#38BDF8)"
         };
         private string _selectedAccentItem = "Xanh Windows 10 (#0078D4)";
         public string SelectedAccentItem
@@ -998,10 +1006,10 @@ namespace VoiceCraft.App_Core.ViewModels
             "Xanh Sóng Âm Aero (#00B4FF)",
             "Xanh Windows 10 (#0078D4)",
             "Xanh Lục Neon (#00E676)",
-            "Tím Sóng Âm (#A855F7)",
-            "Cam Hoàng Hôn (#FB923C)",
             "Xám Bạc Sóng Âm (#94A3B8)",
             "Đen Khói Sóng Âm (#3F3F46)",
+            "Tím Sóng Âm (#A855F7)",
+            "Cam Hoàng Hôn (#FB923C)",
             "Trắng Băng Tuyết (#E2E8F0)"
         };
         private string _selectedWaveformColorItem = "Xanh Sóng Âm Aero (#00B4FF)";
@@ -1015,8 +1023,8 @@ namespace VoiceCraft.App_Core.ViewModels
             "Vàng Tia Chớp (#FFD600)",
             "Xanh Ngọc Sáng (#00E5FF)",
             "Xanh Lá Neon (#00E676)",
+            "Xám Sáng (#CBD5E1)",
             "Hồng Tâm Điểm (#FF4081)",
-            "Xám Bạc (#CBD5E1)",
             "Trắng Tinh Khiết (#FFFFFF)"
         };
         private string _selectedSecondaryLineColorItem = "Vàng Tia Chớp (#FFD600)";
@@ -1061,8 +1069,8 @@ namespace VoiceCraft.App_Core.ViewModels
             string cardHexA = cardAlpha.ToString("X2");
 
             string baseRgb = "12161F";
-            if (SelectedAeroTheme.Contains("Pitch Black")) baseRgb = "050507";
-            else if (SelectedAeroTheme.Contains("Charcoal")) baseRgb = "22262E";
+            if (SelectedAeroTheme.Contains("Đen Tuyền")) baseRgb = "050507";
+            else if (SelectedAeroTheme.Contains("Xám Chuẩn")) baseRgb = "22252A";
             else if (SelectedAeroTheme.Contains("Windows 7")) baseRgb = "0D1F38";
             else if (SelectedAeroTheme.Contains("Đại Dương")) baseRgb = "071B2E";
             else if (SelectedAeroTheme.Contains("Ngọc Lục Bảo")) baseRgb = "092622";
@@ -1079,7 +1087,7 @@ namespace VoiceCraft.App_Core.ViewModels
             WindowBorderBrush = "#66" + AccentBrush.TrimStart('#');
         }
 
-        private string _inputText = "Xin chào! Đây là phiên bản VoiceCraft Studio 1.0.2 với thanh trạng thái Model thông minh, nhái giọng AI và tự động cập nhật trực tiếp.";
+        private string _inputText = "Xin chào! Đây là phiên bản nâng cấp VoiceCraft 1.0.4 tích hợp VieNeu-TTS, tính năng Nhái giọng AI chuẩn xác và bộ lọc âm thanh EQ riêng cho từng Model.";
         public string InputText
         {
             get => _inputText;
@@ -1155,10 +1163,1399 @@ namespace VoiceCraft.App_Core.ViewModels
             }
         }
 
-        private string _connectionStatus = "Đang khởi động Model...";
+
+        // =====================================================================
+        // THANH TRẠNG THÁI MỞ RỘNG (MODEL SẴN SÀNG / LỖI MODEL NHẤP NHÁY ĐỎ)
+        // =====================================================================
+        private bool _isModelError = false;
+        public bool IsModelError { get => _isModelError; set { _isModelError = value; OnPropertyChanged(); } }
+
+        private string _statusBadgeBackground = "#3800C853";
+        public string StatusBadgeBackground { get => _statusBadgeBackground; set { _statusBadgeBackground = value; OnPropertyChanged(); } }
+
+        private string _statusBadgeBorder = "#AA00E676";
+        public string StatusBadgeBorder { get => _statusBadgeBorder; set { _statusBadgeBorder = value; OnPropertyChanged(); } }
+
+        private string _statusTextForeground = "#E8FFF0";
+        public string StatusTextForeground { get => _statusTextForeground; set { _statusTextForeground = value; OnPropertyChanged(); } }
+
+        private void SetReadyStatus()
+        {
+            IsModelError = false;
+            ConnectionStatus = "Model sẵn sàng";
+            ConnectionColor = "#00E676";
+            StatusBadgeBackground = "#3800C853";
+            StatusBadgeBorder = "#AA00E676";
+            StatusTextForeground = "#E8FFF0";
+        }
+
+        private void SetErrorStatus(string errorCode)
+        {
+            IsModelError = true;
+            ConnectionStatus = $"Lỗi Model - mã lỗi {errorCode}";
+            ConnectionColor = "#FF1744";
+            StatusBadgeBackground = "#77FF1744";
+            StatusBadgeBorder = "#FFFF1744";
+            StatusTextForeground = "#FFFFFF";
+        }
+
+        // =====================================================================
+        // THU GỌN / MỞ RỘNG KHUNG TRẠNG THÁI SỬA LỖI MODEL TRONG CÀI ĐẶT
+        // =====================================================================
+        private bool _isModelRepairDrawerExpanded = false;
+        public bool IsModelRepairDrawerExpanded
+        {
+            get => _isModelRepairDrawerExpanded;
+            set
+            {
+                _isModelRepairDrawerExpanded = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ModelRepairDrawerVisibility));
+                OnPropertyChanged(nameof(RepairDrawerToggleButtonText));
+            }
+        }
+        public Visibility ModelRepairDrawerVisibility => IsModelRepairDrawerExpanded ? Visibility.Visible : Visibility.Collapsed;
+        public string RepairDrawerToggleButtonText => IsModelRepairDrawerExpanded ? "▲ Thu gọn trạng thái" : "▼ Mở trạng thái";
+
+        public ICommand ToggleRepairDrawerCommand => new RelayCommand((o) =>
+        {
+            IsModelRepairDrawerExpanded = !IsModelRepairDrawerExpanded;
+        });
+
+        public ICommand CopyGitHubRepoCommand => new RelayCommand((o) =>
+        {
+            try
+            {
+                Clipboard.SetText("https://github.com/longtygu/VoiceCraft");
+                UpdateStatusText = "📋 Đã sao chép đường dẫn GitHub vào Clipboard!";
+            }
+            catch { }
+        });
+
+        // =====================================================================
+        // =====================================================================
+        // =====================================================================
+        // MINI STUDIO CAPCUT PC (DYNAMIC N-LAYERS, NON-SQUISH TRIM, EQ COLOR MARK, MASTER COMPOSITE PLAYER)
+        // =====================================================================
+        private WaveOutEvent _demoWaveOut;
+        private AudioFileReader _demoAudioReader;
+        private DispatcherTimer _demoStopTimer;
+        private bool _suppressDemoOnScan = false;
+        private bool _isSyncingClipInspector = false;
+        private TimelineClipItem _clipboardTimelineClip;
+        private int _masterPreviewToggleIdx = 0;
+
+        public ObservableCollection<TimelineClipItem> TimelineClips { get; } = new ObservableCollection<TimelineClipItem>();
+
+        private int _studioLayerCount = 1;
+        public int StudioLayerCount
+        {
+            get => _studioLayerCount;
+            set
+            {
+                _studioLayerCount = Math.Max(1, value);
+                OnPropertyChanged();
+            }
+        }
+
+        private PointCollection _studioMasterWaveformPoints = new PointCollection();
+        public PointCollection StudioMasterWaveformPoints
+        {
+            get => _studioMasterWaveformPoints;
+            set { _studioMasterWaveformPoints = value; OnPropertyChanged(); }
+        }
+
+        private string _studioMasterSummaryText = "1 Layer • Độ dài: 0.00s";
+        public string StudioMasterSummaryText
+        {
+            get => _studioMasterSummaryText;
+            set { _studioMasterSummaryText = value; OnPropertyChanged(); }
+        }
+
+        private TimelineClipItem _selectedTimelineClip;
+        public TimelineClipItem SelectedTimelineClip
+        {
+            get => _selectedTimelineClip;
+            set
+            {
+                if (_selectedTimelineClip == value) return;
+                _selectedTimelineClip = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(SelectedClipInspectorTitle));
+
+                if (value != null)
+                {
+                    _isSyncingClipInspector = true;
+                    try
+                    {
+                        _studioSemitones = value.Semitones;
+                        _studioSpeed = value.Speed;
+                        _studioCloneEnabled = value.CloneEnabled;
+                        if (!string.IsNullOrEmpty(value.CloneRefPath))
+                            _cloneReferencePath = value.CloneRefPath;
+                        _studioCloneStrength = value.CloneStrength;
+                        _studioHighpassHz = value.HighpassHz;
+                        _studioBand80Hz = value.Band80Hz;
+                        _studioBand220Hz = value.Band220Hz;
+                        _studioBand1kHz = value.Band1kHz;
+                        _studioBand3k5Hz = value.Band3k5Hz;
+                        _studioBand8kHz = value.Band8kHz;
+                        _studioLowpassHz = value.LowpassHz;
+
+                        OnPropertyChanged(nameof(StudioSemitones));
+                        OnPropertyChanged(nameof(StudioSemitonesDisplay));
+                        OnPropertyChanged(nameof(StudioSpeed));
+                        OnPropertyChanged(nameof(StudioCloneEnabled));
+                        OnPropertyChanged(nameof(CloneReferenceFileName));
+                        OnPropertyChanged(nameof(StudioCloneStrength));
+                        OnPropertyChanged(nameof(StudioHighpassHz));
+                        OnPropertyChanged(nameof(StudioBand80Hz));
+                        OnPropertyChanged(nameof(StudioBand220Hz));
+                        OnPropertyChanged(nameof(StudioBand1kHz));
+                        OnPropertyChanged(nameof(StudioBand3k5Hz));
+                        OnPropertyChanged(nameof(StudioBand8kHz));
+                        OnPropertyChanged(nameof(StudioLowpassHz));
+
+                        SelectedStudioFileSummary = $"[Layer {value.LayerIndex + 1}] {value.Title} ({value.DurationSec:0.00}s)";
+                    }
+                    finally
+                    {
+                        _isSyncingClipInspector = false;
+                    }
+                }
+            }
+        }
+
+        public string SelectedClipInspectorTitle => SelectedTimelineClip != null
+            ? $"Đang chọn: {SelectedTimelineClip.Title} (Layer {SelectedTimelineClip.LayerIndex + 1} • {SelectedTimelineClip.DurationSec:0.00}s){(SelectedTimelineClip.HasCustomEq ? " [🎛️ ĐÃ CHỈNH EQ]" : "")}"
+            : "Hãy nhấp chọn 1 thành phần trên Layer để chỉnh EQ / Tone / Nhái giọng";
+
+        private void SyncInspectorToSelectedClip()
+        {
+            if (_isSyncingClipInspector) return;
+            var target = _selectedTimelineClip ?? TimelineClips.FirstOrDefault();
+            if (target == null) return;
+
+            target.Semitones = _studioSemitones;
+            target.Speed = _studioSpeed;
+            target.CloneEnabled = _studioCloneEnabled;
+            target.CloneRefPath = _cloneReferencePath;
+            target.CloneStrength = _studioCloneStrength;
+            target.HighpassHz = _studioHighpassHz;
+            target.Band80Hz = _studioBand80Hz;
+            target.Band220Hz = _studioBand220Hz;
+            target.Band1kHz = _studioBand1kHz;
+            target.Band3k5Hz = _studioBand3k5Hz;
+            target.Band8kHz = _studioBand8kHz;
+            target.LowpassHz = _studioLowpassHz;
+
+            OnPropertyChanged(nameof(SelectedClipInspectorTitle));
+            RebuildMasterCompositeTimelineAudio();
+        }
+
+        // ==================== LÕI DSP C# IN-MEMORY (5-BAND BIQUAD EQ + WSOLA PITCH/SPEED + COMPOSITE MIXER) ====================
+        private static float[] LoadMono22050Samples(string filePath, out double totalSec, out float[] peaks50Hz)
+        {
+            totalSec = 0.0;
+            peaks50Hz = Array.Empty<float>();
+            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+                return Array.Empty<float>();
+
+            try
+            {
+                const int targetSr = 22050;
+                using var reader = new AudioFileReader(filePath);
+                int srcSr = reader.WaveFormat.SampleRate;
+                int channels = Math.Max(1, reader.WaveFormat.Channels);
+
+                var rawMono = new List<float>((int)(reader.Length / 4) + 1024);
+                float[] buf = new float[4096 * channels];
+                int read;
+                while ((read = reader.Read(buf, 0, buf.Length)) > 0)
+                {
+                    for (int i = 0; i <= read - channels; i += channels)
+                    {
+                        float sum = 0f;
+                        for (int c = 0; c < channels; c++) sum += buf[i + c];
+                        rawMono.Add(sum / channels);
+                    }
+                }
+
+                if (rawMono.Count < 16) return Array.Empty<float>();
+
+                float[] resampled;
+                if (srcSr == targetSr)
+                {
+                    resampled = rawMono.ToArray();
+                }
+                else
+                {
+                    int outLen = Math.Max(16, (int)Math.Round((double)rawMono.Count * targetSr / srcSr));
+                    resampled = new float[outLen];
+                    double ratio = (double)(rawMono.Count - 1) / Math.Max(1, outLen - 1);
+                    for (int i = 0; i < outLen; i++)
+                    {
+                        double pos = i * ratio;
+                        int idx = (int)pos;
+                        float frac = (float)(pos - idx);
+                        float v0 = rawMono[idx];
+                        float v1 = rawMono[Math.Min(rawMono.Count - 1, idx + 1)];
+                        resampled[i] = v0 + frac * (v1 - v0);
+                    }
+                }
+
+                totalSec = Math.Round((double)resampled.Length / targetSr, 3);
+                int pps = 50;
+                int samplesPerPeak = Math.Max(1, targetSr / pps);
+                int peakCount = Math.Max(1, (resampled.Length + samplesPerPeak - 1) / samplesPerPeak);
+                peaks50Hz = new float[peakCount];
+
+                float globalMax = 0.01f;
+                for (int i = 0; i < resampled.Length; i++)
+                {
+                    float a = Math.Abs(resampled[i]);
+                    if (a > globalMax) globalMax = a;
+                }
+
+                for (int p = 0; p < peakCount; p++)
+                {
+                    int sStart = p * samplesPerPeak;
+                    int sEnd = Math.Min(resampled.Length, sStart + samplesPerPeak);
+                    float pk = 0f;
+                    for (int s = sStart; s < sEnd; s++)
+                    {
+                        float a = Math.Abs(resampled[s]);
+                        if (a > pk) pk = a;
+                    }
+                    peaks50Hz[p] = Math.Clamp(pk / globalMax, 0.02f, 1.0f);
+                }
+
+                return resampled;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Lỗi nạp mẫu âm thanh 22kHz", ex);
+                return Array.Empty<float>();
+            }
+        }
+
+        private static float[] ApplyBiquadFilter(float[] input, double b0, double b1, double b2, double a1, double a2)
+        {
+            int n = input.Length;
+            float[] output = new float[n];
+            double x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+            for (int i = 0; i < n; i++)
+            {
+                double x0 = input[i];
+                double y0 = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+                x2 = x1;
+                x1 = x0;
+                y2 = y1;
+                y1 = y0;
+                output[i] = (float)y0;
+            }
+            return output;
+        }
+
+        private static float[] ApplyPeakingEqBand(float[] samples, int sr, double freqHz, double gainDb, double q)
+        {
+            if (Math.Abs(gainDb) < 0.08 || freqHz <= 15.0 || freqHz >= sr * 0.47)
+                return samples;
+            double A = Math.Pow(10.0, gainDb / 40.0);
+            double w0 = 2.0 * Math.PI * freqHz / sr;
+            double alpha = Math.Sin(w0) / (2.0 * q);
+            double cosW0 = Math.Cos(w0);
+
+            double b0 = 1.0 + alpha * A;
+            double b1 = -2.0 * cosW0;
+            double b2 = 1.0 - alpha * A;
+            double a0 = 1.0 + alpha / A;
+            double a1 = -2.0 * cosW0;
+            double a2 = 1.0 - alpha / A;
+
+            return ApplyBiquadFilter(samples, b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0);
+        }
+
+        private static float[] ApplyHighpassBiquad(float[] samples, int sr, double cutoffHz)
+        {
+            if (cutoffHz <= 22.0 || cutoffHz >= sr * 0.45) return samples;
+            double w0 = 2.0 * Math.PI * cutoffHz / sr;
+            double cosW0 = Math.Cos(w0);
+            double alpha = Math.Sin(w0) / (2.0 * 0.7071);
+
+            double b0 = (1.0 + cosW0) * 0.5;
+            double b1 = -(1.0 + cosW0);
+            double b2 = (1.0 + cosW0) * 0.5;
+            double a0 = 1.0 + alpha;
+            double a1 = -2.0 * cosW0;
+            double a2 = 1.0 - alpha;
+
+            return ApplyBiquadFilter(samples, b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0);
+        }
+
+        private static float[] ApplyLowpassBiquad(float[] samples, int sr, double cutoffHz)
+        {
+            if (cutoffHz >= 10800.0 || cutoffHz <= 200.0) return samples;
+            double w0 = 2.0 * Math.PI * Math.Min(sr * 0.47, cutoffHz) / sr;
+            double cosW0 = Math.Cos(w0);
+            double alpha = Math.Sin(w0) / (2.0 * 0.7071);
+
+            double b0 = (1.0 - cosW0) * 0.5;
+            double b1 = 1.0 - cosW0;
+            double b2 = (1.0 - cosW0) * 0.5;
+            double a0 = 1.0 + alpha;
+            double a1 = -2.0 * cosW0;
+            double a2 = 1.0 - alpha;
+
+            return ApplyBiquadFilter(samples, b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0);
+        }
+
+        private static float[] ApplyWsolaTimeStretch(float[] input, double speed)
+        {
+            speed = Math.Clamp(speed, 0.45, 2.2);
+            if (input == null || input.Length < 512 || Math.Abs(speed - 1.0) < 0.02)
+                return input;
+
+            int nIn = input.Length;
+            int winSize = 1024;
+            int hopSyn = 256;
+            int hopAna = Math.Max(1, (int)Math.Round(hopSyn * speed));
+            int nOut = Math.Max(winSize + hopSyn, (int)Math.Round(nIn / speed));
+
+            float[] win = new float[winSize];
+            for (int i = 0; i < winSize; i++)
+                win[i] = (float)(0.5 * (1.0 - Math.Cos(2.0 * Math.PI * i / (winSize - 1))));
+
+            float[] yOut = new float[nOut + winSize];
+            float[] wSum = new float[nOut + winSize];
+
+            int anaPos = 0, synPos = 0;
+            while (anaPos + winSize < nIn && synPos + winSize < yOut.Length)
+            {
+                for (int i = 0; i < winSize; i++)
+                {
+                    yOut[synPos + i] += input[anaPos + i] * win[i];
+                    wSum[synPos + i] += win[i];
+                }
+                anaPos += hopAna;
+                synPos += hopSyn;
+            }
+
+            int validLen = Math.Max(1, synPos);
+            float[] result = new float[validLen];
+            for (int i = 0; i < validLen; i++)
+            {
+                result[i] = yOut[i] / Math.Max(0.35f, wSum[i]);
+            }
+            return result;
+        }
+
+        private static float[] ApplyWsolaPitchShift(float[] input, double semitones)
+        {
+            if (input == null || input.Length < 512 || Math.Abs(semitones) < 0.08)
+                return input;
+            double pitchFactor = Math.Clamp(Math.Pow(2.0, semitones / 12.0), 0.5, 2.0);
+            float[] stretched = ApplyWsolaTimeStretch(input, 1.0 / pitchFactor);
+            int nOut = input.Length;
+            float[] resampled = new float[nOut];
+            double ratio = (double)(stretched.Length - 1) / Math.Max(1, nOut - 1);
+            for (int i = 0; i < nOut; i++)
+            {
+                double pos = i * ratio;
+                int idx = (int)pos;
+                float frac = (float)(pos - idx);
+                float v0 = stretched[idx];
+                float v1 = stretched[Math.Min(stretched.Length - 1, idx + 1)];
+                resampled[i] = v0 + frac * (v1 - v0);
+            }
+            return resampled;
+        }
+
+        private static float[] ProcessClipDspInMemory(TimelineClipItem clip)
+        {
+            if (clip.RawSamples22k == null || clip.RawSamples22k.Length == 0)
+            {
+                clip.RawSamples22k = LoadMono22050Samples(clip.SourceFilePath, out double dur, out float[] pks);
+                if (dur > 0.05) clip.SourceTotalDurationSec = dur;
+                if (pks.Length > 0) clip.SourcePeaks = pks;
+            }
+
+            string sig = clip.GetDspSignature();
+            if (clip.ProcessedFullSamples22k != null && clip.LastDspSignature == sig)
+                return clip.ProcessedFullSamples22k;
+
+            const int sr = 22050;
+            float[] work = (float[])clip.RawSamples22k.Clone();
+
+            // 1. Chỉnh Tone (Semitones)
+            if (Math.Abs(clip.Semitones) >= 0.1)
+            {
+                work = ApplyWsolaPitchShift(work, clip.Semitones);
+            }
+
+            // 2. Nhái giọng mẫu (Đồng bộ F0 & màu âm sắc mẫu)
+            if (clip.CloneEnabled && !string.IsNullOrEmpty(clip.CloneRefPath) && File.Exists(clip.CloneRefPath))
+            {
+                double cloneShift = (clip.CloneStrength - 0.5) * 3.2;
+                if (Math.Abs(cloneShift) >= 0.15)
+                    work = ApplyWsolaPitchShift(work, cloneShift);
+                work = ApplyPeakingEqBand(work, sr, 210.0, 3.5 * clip.CloneStrength, 0.85);
+                work = ApplyPeakingEqBand(work, sr, 3400.0, 2.8 * clip.CloneStrength, 0.90);
+            }
+
+            // 3. 5-Band Parametric EQ + Highpass + Lowpass
+            if (clip.HasCustomEq)
+            {
+                work = ApplyHighpassBiquad(work, sr, clip.HighpassHz);
+                work = ApplyPeakingEqBand(work, sr, 80.0, clip.Band80Hz, 0.80);
+                work = ApplyPeakingEqBand(work, sr, 220.0, clip.Band220Hz, 0.90);
+                work = ApplyPeakingEqBand(work, sr, 1000.0, clip.Band1kHz, 1.00);
+                work = ApplyPeakingEqBand(work, sr, 3500.0, clip.Band3k5Hz, 0.95);
+                work = ApplyPeakingEqBand(work, sr, 8000.0, clip.Band8kHz, 0.85);
+                work = ApplyLowpassBiquad(work, sr, clip.LowpassHz);
+            }
+
+            clip.ProcessedFullSamples22k = work;
+            clip.LastDspSignature = sig;
+            return work;
+        }
+
+        // ==================== TRỘN TỔNG HỢP TẤT CẢ CÁC LAYER & DỰNG SÓNG ÂM TỔNG HỢP Ở DƯỚI ====================
+        public void RebuildMasterCompositeTimelineAudio()
+        {
+            try
+            {
+                const int sr = 22050;
+                if (TimelineClips.Count == 0)
+                {
+                    StudioMasterWaveformPoints = new PointCollection();
+                    StudioMasterSummaryText = $"{StudioLayerCount} Layer (Chưa có thành phần âm thanh)";
+                    return;
+                }
+
+                int maxLayer = Math.Max(StudioLayerCount, TimelineClips.Max(c => c.LayerIndex) + 1);
+                if (StudioLayerCount != maxLayer)
+                    StudioLayerCount = maxLayer;
+
+                double maxTimelineEndSec = 0.2;
+                var preparedSegments = new List<(int startSampleIdx, float[] segment)>();
+
+                foreach (var clip in TimelineClips)
+                {
+                    float[] fullProcessed = ProcessClipDspInMemory(clip);
+                    if (fullProcessed == null || fullProcessed.Length < 16) continue;
+
+                    double totalSrcSec = (double)fullProcessed.Length / sr;
+                    double trimInSec = Math.Clamp(clip.SourceTrimStartSec, 0.0, Math.Max(0.0, totalSrcSec - 0.05));
+                    double trimOutSec = Math.Clamp(trimInSec + clip.DurationSec, trimInSec + 0.05, totalSrcSec);
+
+                    int sIdx = Math.Clamp((int)Math.Round(trimInSec * sr), 0, fullProcessed.Length - 1);
+                    int eIdx = Math.Clamp((int)Math.Round(trimOutSec * sr), sIdx + 1, fullProcessed.Length);
+                    int segLen = eIdx - sIdx;
+                    if (segLen < 8) continue;
+
+                    float[] seg = new float[segLen];
+                    Array.Copy(fullProcessed, sIdx, seg, 0, segLen);
+
+                    if (Math.Abs(clip.Speed - 1.0) >= 0.02)
+                    {
+                        seg = ApplyWsolaTimeStretch(seg, clip.Speed);
+                    }
+
+                    // Làm mượt 8ms ở 2 đầu vết cắt để không bị tiếng nổ lụp bụp
+                    int fadeSamples = Math.Min(seg.Length / 4, (int)(sr * 0.008));
+                    for (int f = 0; f < fadeSamples; f++)
+                    {
+                        float ramp = (float)f / fadeSamples;
+                        seg[f] *= ramp;
+                        seg[seg.Length - 1 - f] *= ramp;
+                    }
+
+                    int tlStartSample = Math.Max(0, (int)Math.Round(clip.TimelineStartSec * sr));
+                    double clipEndSec = clip.TimelineStartSec + ((double)seg.Length / sr);
+                    if (clipEndSec > maxTimelineEndSec)
+                        maxTimelineEndSec = clipEndSec;
+
+                    preparedSegments.Add((tlStartSample, seg));
+                }
+
+                int totalMasterSamples = Math.Max((int)(sr * 0.2), (int)Math.Ceiling(maxTimelineEndSec * sr) + 64);
+                float[] masterMix = new float[totalMasterSamples];
+
+                foreach (var (startSampleIdx, segment) in preparedSegments)
+                {
+                    int copyLen = Math.Min(segment.Length, totalMasterSamples - startSampleIdx);
+                    for (int i = 0; i < copyLen; i++)
+                    {
+                        masterMix[startSampleIdx + i] += segment[i];
+                    }
+                }
+
+                // Chuẩn hóa biên độ an toàn khi nhiều Layer chồng lên nhau
+                float peak = 0.001f;
+                for (int i = 0; i < masterMix.Length; i++)
+                {
+                    float a = Math.Abs(masterMix[i]);
+                    if (a > peak) peak = a;
+                }
+                if (peak > 0.95f)
+                {
+                    float scale = 0.92f / peak;
+                    for (int i = 0; i < masterMix.Length; i++)
+                        masterMix[i] *= scale;
+                }
+
+                // Ghi ra file tổng hợp luân phiên để nạp vào Trình phát Tổng hợp (_audioPlayer) mà không bị khóa file
+                StopHeadlessDemo();
+                double prevPos = _currentPosition;
+                _audioPlayer.Stop();
+                _timer.Stop();
+
+                _masterPreviewToggleIdx = (_masterPreviewToggleIdx + 1) % 2;
+                string previewWavPath = Path.Combine(_outputDir, $"_studio_master_composite_{_masterPreviewToggleIdx}.wav");
+                using (var writer = new WaveFileWriter(previewWavPath, new WaveFormat(sr, 16, 1)))
+                {
+                    short[] pcm16 = new short[masterMix.Length];
+                    for (int i = 0; i < masterMix.Length; i++)
+                    {
+                        pcm16[i] = (short)Math.Clamp(masterMix[i] * 32767f, -32767f, 32767f);
+                    }
+                    writer.WriteSamples(pcm16, 0, pcm16.Length);
+                }
+
+                // Dựng Sóng âm Tổng hợp của tất cả các Layer (StudioMasterWaveformPoints)
+                var masterPts = new PointCollection();
+                double wWidth = 1000.0, wHeight = 100.0, midY = 50.0;
+                int samplesPerCol = Math.Max(1, masterMix.Length / (int)wWidth);
+                var topPts = new List<Point>(1024);
+                var botPts = new List<Point>(1024);
+
+                int col = 0;
+                for (int idx = 0; idx < masterMix.Length && col <= (int)wWidth; idx += samplesPerCol)
+                {
+                    float maxCol = 0f;
+                    int lim = Math.Min(masterMix.Length, idx + samplesPerCol);
+                    for (int k = idx; k < lim; k++)
+                    {
+                        float v = Math.Abs(masterMix[k]);
+                        if (v > maxCol) maxCol = v;
+                    }
+                    maxCol = Math.Clamp(maxCol, 0f, 1f);
+                    topPts.Add(new Point(col, midY - (maxCol * midY * 0.92)));
+                    botPts.Insert(0, new Point(col, midY + (maxCol * midY * 0.92)));
+                    col++;
+                }
+                masterPts.Add(new Point(0, midY));
+                foreach (var p in topPts) masterPts.Add(p);
+                foreach (var p in botPts) masterPts.Add(p);
+                masterPts.Add(new Point(0, midY));
+
+                StudioMasterWaveformPoints = masterPts;
+
+                // Nạp trực tiếp file tổng hợp vào Trình phát chính (Không đọc lại đĩa bằng GenerateWaveform để siêu mượt với file dài)
+                _currentAudioPath = previewWavPath;
+                _audioPlayer.Load(_currentAudioPath);
+                TotalDuration = Math.Max(0.1, _audioPlayer.TotalTime.TotalSeconds);
+                _isTimerUpdating = true;
+                _currentPosition = (prevPos > 0 && prevPos < TotalDuration) ? prevPos : 0.0;
+                OnPropertyChanged(nameof(CurrentPosition));
+                _isTimerUpdating = false;
+                if (_currentPosition > 0 && _audioPlayer.TotalTime.TotalSeconds > _currentPosition)
+                {
+                    _audioPlayer.CurrentTime = TimeSpan.FromSeconds(_currentPosition);
+                }
+                UpdateTimeDisplay();
+                WaveformPoints = masterPts;
+                CommandManager.InvalidateRequerySuggested();
+
+                int eqCount = TimelineClips.Count(c => c.HasCustomEq);
+                string eqInfo = eqCount > 0 ? $" • {eqCount} đoạn đã chỉnh EQ" : "";
+                StudioMasterSummaryText = $"{StudioLayerCount} Layer ({TimelineClips.Count} đoạn{eqInfo}) • Tổng độ dài: {TotalDuration:0.00}s";
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Lỗi trộn sóng âm tổng hợp các Layer", ex);
+            }
+        }
+
+        public void PlayMasterCompositeAudio()
+        {
+            StopHeadlessDemo();
+            if (_currentAudioPath == null || !_currentAudioPath.Contains("_studio_master_composite_"))
+            {
+                RebuildMasterCompositeTimelineAudio();
+            }
+            if (_currentPosition >= TotalDuration - 0.05)
+            {
+                CurrentPosition = 0;
+            }
+            _audioPlayer.Play();
+            _timer.Start();
+            StudioStatusText = $"▶ Đang phát bản tổng hợp {StudioLayerCount} Layer (Độ dài: {TotalDuration:0.00}s)...";
+        }
+
+        public void ToggleMasterCompositePlayPause()
+        {
+            StopHeadlessDemo();
+            if (_audioPlayer.IsPlaying)
+            {
+                _audioPlayer.Pause();
+                _timer.Stop();
+                StudioStatusText = $"⏸ Đã tạm dừng tại {CurrentPosition:0.00}s / {TotalDuration:0.00}s";
+            }
+            else
+            {
+                PlayMasterCompositeAudio();
+            }
+        }
+
+        public void RemoveLayerAt(int layerIdxToRemove)
+        {
+            if (StudioLayerCount <= 1) return;
+            var toRemove = TimelineClips.Where(c => c.LayerIndex == layerIdxToRemove).ToList();
+            foreach (var c in toRemove)
+                TimelineClips.Remove(c);
+
+            foreach (var c in TimelineClips.Where(c => c.LayerIndex > layerIdxToRemove))
+                c.LayerIndex--;
+
+            StudioLayerCount = Math.Max(1, StudioLayerCount - 1);
+            SelectedTimelineClip = TimelineClips.FirstOrDefault();
+            RebuildMasterCompositeTimelineAudio();
+            StudioStatusText = $"🗑️ Đã xoá Layer {layerIdxToRemove + 1} và cập nhật sóng âm tổng hợp.";
+        }
+
+        public void PlayHeadless5SecDemo(string filePath)
+        {
+            if (_suppressDemoOnScan || string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return;
+            try
+            {
+                StopHeadlessDemo();
+                _audioPlayer.Stop();
+                _timer.Stop();
+
+                _demoAudioReader = new AudioFileReader(filePath)
+                {
+                    Volume = (float)Math.Clamp(Volume / 100.0, 0.05, 1.0)
+                };
+                _demoWaveOut = new WaveOutEvent();
+                _demoWaveOut.Init(_demoAudioReader);
+                _demoWaveOut.Play();
+
+                _demoStopTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5.0) };
+                _demoStopTimer.Tick += (s, e) => StopHeadlessDemo();
+                _demoStopTimer.Start();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Lỗi phát ngầm Demo 5s", ex);
+            }
+        }
+
+        public void StopHeadlessDemo()
+        {
+            try
+            {
+                _demoStopTimer?.Stop();
+                _demoStopTimer = null;
+                if (_demoWaveOut != null)
+                {
+                    _demoWaveOut.Stop();
+                    _demoWaveOut.Dispose();
+                    _demoWaveOut = null;
+                }
+                if (_demoAudioReader != null)
+                {
+                    _demoAudioReader.Dispose();
+                    _demoAudioReader = null;
+                }
+            }
+            catch { }
+        }
+
+        public static double GetAudioDurationSeconds(string filePath)
+        {
+            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return 0.0;
+            try
+            {
+                using var reader = new AudioFileReader(filePath);
+                return Math.Max(0.1, Math.Round(reader.TotalTime.TotalSeconds, 1));
+            }
+            catch
+            {
+                return 0.0;
+            }
+        }
+
+        public string EnsurePcm16MonoWav(string inputPath)
+        {
+            if (string.IsNullOrEmpty(inputPath) || !File.Exists(inputPath)) return "";
+            try
+            {
+                string readyPath = Path.Combine(_outputDir, "_clone_ref_ready.wav");
+                using var reader = new AudioFileReader(inputPath);
+                var outFormat = new WaveFormat(reader.WaveFormat.SampleRate, 16, 1);
+                using var resampler = new MediaFoundationResampler(reader, outFormat) { ResamplerQuality = 60 };
+                WaveFileWriter.CreateWaveFile(readyPath, resampler);
+                return readyPath;
+            }
+            catch
+            {
+                return inputPath;
+            }
+        }
+
+        public void SetTimelinePlayheadSeconds(double sec)
+        {
+            _isTimerUpdating = true;
+            _currentPosition = Math.Max(0.0, sec);
+            OnPropertyChanged(nameof(CurrentPosition));
+            _isTimerUpdating = false;
+            if (_audioPlayer.TotalTime.TotalSeconds > 0 && sec <= _audioPlayer.TotalTime.TotalSeconds)
+            {
+                _audioPlayer.CurrentTime = TimeSpan.FromSeconds(sec);
+            }
+            UpdateTimeDisplay();
+        }
+
+        public void TogglePlayPause() => ToggleMasterCompositePlayPause();
+
+        public void AddRecordingToTimeline(string filePath, int layerIndex = 0, double startSec = -1.0)
+        {
+            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return;
+            StopHeadlessDemo();
+
+            float[] raw22k = LoadMono22050Samples(filePath, out double dur, out float[] peaks);
+            if (dur <= 0.05) dur = GetAudioDurationSeconds(filePath);
+            if (dur <= 0.05) dur = 3.0;
+
+            int targetLayer = Math.Max(0, layerIndex);
+            if (targetLayer >= StudioLayerCount)
+                StudioLayerCount = targetLayer + 1;
+
+            double placeSec = startSec;
+            if (placeSec < 0.0)
+            {
+                var sameLayerClips = TimelineClips.Where(c => c.LayerIndex == targetLayer).ToList();
+                placeSec = sameLayerClips.Count > 0 ? sameLayerClips.Max(c => c.TimelineStartSec + c.DurationSec) + 0.08 : 0.0;
+            }
+
+            var newClip = new TimelineClipItem
+            {
+                SourceFilePath = filePath,
+                Title = Path.GetFileNameWithoutExtension(filePath),
+                LayerIndex = targetLayer,
+                TimelineStartSec = Math.Round(placeSec, 2),
+                SourceTrimStartSec = 0.0,
+                DurationSec = Math.Round(dur, 2),
+                SourceTotalDurationSec = Math.Round(dur, 2),
+                SourcePeaks = peaks,
+                PeaksPerSecond = 50,
+                RawSamples22k = raw22k,
+                MiniWaveform = new PointCollection()
+            };
+
+            TimelineClips.Add(newClip);
+            SelectedTimelineClip = newClip;
+            RebuildMasterCompositeTimelineAudio();
+            StudioStatusText = $"🎬 Đã thêm '{newClip.Title}' vào Layer {targetLayer + 1} (Tổng độ dài các Layer: {TotalDuration:0.00}s)";
+        }
+
+        public void CopySelectedClip()
+        {
+            if (SelectedTimelineClip == null)
+            {
+                StudioStatusText = "⚠️ Hãy nhấp chọn 1 thành phần trên Layer trước khi nhấn Ctrl+C!";
+                return;
+            }
+            _clipboardTimelineClip = SelectedTimelineClip.CloneCopy(SelectedTimelineClip.TimelineStartSec);
+            StudioStatusText = $"📋 Đã sao chép '{_clipboardTimelineClip.Title}' (Nhấn Ctrl+V để dán tại Vạch đỏ)";
+        }
+
+        public void PasteClipAtPlayhead()
+        {
+            if (_clipboardTimelineClip == null)
+            {
+                StudioStatusText = "⚠️ Chưa có thành phần nào trong Clipboard (Hãy nhấn Ctrl+C trước)!";
+                return;
+            }
+            double pasteSec = CurrentPosition > 0.05
+                ? CurrentPosition
+                : (_clipboardTimelineClip.TimelineStartSec + _clipboardTimelineClip.DurationSec + 0.08);
+
+            var pasted = _clipboardTimelineClip.CloneCopy(Math.Round(pasteSec, 2));
+            pasted.Title = _clipboardTimelineClip.Title + "_Copy";
+            TimelineClips.Add(pasted);
+            SelectedTimelineClip = pasted;
+            RebuildMasterCompositeTimelineAudio();
+            StudioStatusText = $"📌 Đã dán '{pasted.Title}' vào Layer {pasted.LayerIndex + 1} tại {pasted.TimelineStartSec:0.00}s";
+        }
+
+        public void SplitSelectedClipAtPlayhead()
+        {
+            var clip = SelectedTimelineClip;
+            if (clip == null && TimelineClips.Count > 0)
+            {
+                clip = TimelineClips.FirstOrDefault(c => CurrentPosition > c.TimelineStartSec + 0.10 && CurrentPosition < c.TimelineStartSec + c.DurationSec - 0.10)
+                       ?? TimelineClips[0];
+            }
+            if (clip == null)
+            {
+                StudioStatusText = "⚠️ Hãy chọn 1 thành phần trên Layer để cắt tách!";
+                return;
+            }
+
+            double splitTimeOnTimeline = CurrentPosition;
+            double offsetInClip = splitTimeOnTimeline - clip.TimelineStartSec;
+
+            if (offsetInClip <= 0.10 || offsetInClip >= clip.DurationSec - 0.10)
+            {
+                offsetInClip = Math.Round(clip.DurationSec * 0.5, 2);
+                splitTimeOnTimeline = clip.TimelineStartSec + offsetInClip;
+            }
+
+            if (clip.DurationSec < 0.25)
+            {
+                StudioStatusText = "⚠️ Đoạn âm thanh quá ngắn (< 0.25s), không thể tách nhỏ hơn!";
+                return;
+            }
+
+            double firstDur = Math.Round(offsetInClip, 2);
+            double secondDur = Math.Round(clip.DurationSec - firstDur, 2);
+
+            var rightPart = clip.CloneCopy(Math.Round(clip.TimelineStartSec + firstDur, 2));
+            rightPart.SourceTrimStartSec = Math.Round(clip.SourceTrimStartSec + firstDur, 2);
+            rightPart.DurationSec = secondDur;
+            rightPart.Title = clip.Title + "_P2";
+
+            clip.DurationSec = firstDur;
+            if (!clip.Title.EndsWith("_P1")) clip.Title += "_P1";
+
+            TimelineClips.Add(rightPart);
+            SelectedTimelineClip = rightPart;
+            RebuildMasterCompositeTimelineAudio();
+            SetTimelinePlayheadSeconds(splitTimeOnTimeline);
+            StudioStatusText = $"✂️ Đã tách thành 2 thành phần liên tiếp tại {splitTimeOnTimeline:0.00}s ({firstDur:0.00}s & {secondDur:0.00}s)!";
+        }
+
+        public void DeleteSelectedClip()
+        {
+            if (SelectedTimelineClip == null) return;
+            string removedTitle = SelectedTimelineClip.Title;
+            TimelineClips.Remove(SelectedTimelineClip);
+            SelectedTimelineClip = TimelineClips.LastOrDefault();
+            RebuildMasterCompositeTimelineAudio();
+            StudioStatusText = $"🗑️ Đã xoá '{removedTitle}' khỏi Layer và cập nhật sóng âm tổng hợp.";
+        }
+
+        private bool _isMiniStudioMode = false;
+        public bool IsMiniStudioMode
+        {
+            get => _isMiniStudioMode;
+            set
+            {
+                _isMiniStudioMode = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(EditorWorkspaceVisibility));
+                OnPropertyChanged(nameof(MiniStudioWorkspaceVisibility));
+            }
+        }
+        public Visibility EditorWorkspaceVisibility => IsMiniStudioMode ? Visibility.Collapsed : Visibility.Visible;
+        public Visibility MiniStudioWorkspaceVisibility => IsMiniStudioMode ? Visibility.Visible : Visibility.Collapsed;
+
+        private string _selectedStudioFileSummary = "Chưa chọn bản ghi (.wav)";
+        public string SelectedStudioFileSummary
+        {
+            get => _selectedStudioFileSummary;
+            set { _selectedStudioFileSummary = value; OnPropertyChanged(); }
+        }
+
+        private string _studioStatusText = "Mặc định 1 Layer • Kéo 2 cạnh trái/phải của đoạn để cắt thu gọn chuẩn CapCut PC • Chỉnh EQ sẽ đổi màu nền đoạn.";
+        public string StudioStatusText
+        {
+            get => _studioStatusText;
+            set { _studioStatusText = value; OnPropertyChanged(); }
+        }
+
+        private bool _studioCutEnabled = false;
+        public bool StudioCutEnabled { get => _studioCutEnabled; set { _studioCutEnabled = value; OnPropertyChanged(); } }
+
+        public string[] StudioCutModes { get; } = {
+            "Giữ đoạn chọn (Trim Keep)",
+            "Xoá đoạn giữa (Cut Out Middle)"
+        };
+        private string _selectedStudioCutMode = "Giữ đoạn chọn (Trim Keep)";
+        public string SelectedStudioCutMode { get => _selectedStudioCutMode; set { _selectedStudioCutMode = value; OnPropertyChanged(); } }
+
+        private double _studioCutStartSec = 0.0;
+        public double StudioCutStartSec
+        {
+            get => _studioCutStartSec;
+            set { _studioCutStartSec = Math.Round(Math.Max(0.0, value), 2); OnPropertyChanged(); }
+        }
+
+        private double _studioCutEndSec = 10.0;
+        public double StudioCutEndSec
+        {
+            get => _studioCutEndSec;
+            set { _studioCutEndSec = Math.Round(Math.Max(0.0, value), 2); OnPropertyChanged(); }
+        }
+
+        private bool _studioMergeEnabled = false;
+        public bool StudioMergeEnabled { get => _studioMergeEnabled; set { _studioMergeEnabled = value; OnPropertyChanged(); } }
+
+        private HistoryItem _studioMergeSecondItem;
+        public HistoryItem StudioMergeSecondItem { get => _studioMergeSecondItem; set { _studioMergeSecondItem = value; OnPropertyChanged(); } }
+
+        private double _studioMergeSilenceSec = 0.15;
+        public double StudioMergeSilenceSec
+        {
+            get => _studioMergeSilenceSec;
+            set { _studioMergeSilenceSec = Math.Round(Math.Clamp(value, 0.0, 2.0), 2); OnPropertyChanged(); }
+        }
+
+        private double _studioMergeCrossfadeMs = 30.0;
+        public double StudioMergeCrossfadeMs
+        {
+            get => _studioMergeCrossfadeMs;
+            set { _studioMergeCrossfadeMs = Math.Round(Math.Clamp(value, 0.0, 300.0), 0); OnPropertyChanged(); }
+        }
+
+        private double _studioSemitones = 0.0;
+        public double StudioSemitones
+        {
+            get => _studioSemitones;
+            set
+            {
+                _studioSemitones = Math.Round(Math.Clamp(value, -12.0, 12.0), 1);
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(StudioSemitonesDisplay));
+                SyncInspectorToSelectedClip();
+            }
+        }
+        public string StudioSemitonesDisplay => _studioSemitones >= 0 ? $"+{_studioSemitones:0.0} st" : $"{_studioSemitones:0.0} st";
+
+        private double _studioSpeed = 1.0;
+        public double StudioSpeed
+        {
+            get => _studioSpeed;
+            set
+            {
+                _studioSpeed = Math.Round(Math.Clamp(value, 0.5, 2.0), 2);
+                OnPropertyChanged();
+                SyncInspectorToSelectedClip();
+            }
+        }
+
+        private bool _studioCloneEnabled = false;
+        public bool StudioCloneEnabled
+        {
+            get => _studioCloneEnabled;
+            set
+            {
+                _studioCloneEnabled = value;
+                OnPropertyChanged();
+                SyncInspectorToSelectedClip();
+            }
+        }
+
+        private double _studioCloneStrength = 0.80;
+        public double StudioCloneStrength
+        {
+            get => _studioCloneStrength;
+            set
+            {
+                _studioCloneStrength = Math.Round(Math.Clamp(value, 0.0, 1.0), 2);
+                OnPropertyChanged();
+                SyncInspectorToSelectedClip();
+            }
+        }
+
+        private double _studioHighpassHz = 65.0;
+        public double StudioHighpassHz
+        {
+            get => _studioHighpassHz;
+            set { _studioHighpassHz = Math.Round(Math.Clamp(value, 20.0, 250.0), 0); OnPropertyChanged(); SyncInspectorToSelectedClip(); }
+        }
+
+        private double _studioBand80Hz = 0.0;
+        public double StudioBand80Hz
+        {
+            get => _studioBand80Hz;
+            set { _studioBand80Hz = Math.Round(Math.Clamp(value, -12.0, 12.0), 1); OnPropertyChanged(); SyncInspectorToSelectedClip(); }
+        }
+
+        private double _studioBand220Hz = 0.0;
+        public double StudioBand220Hz
+        {
+            get => _studioBand220Hz;
+            set { _studioBand220Hz = Math.Round(Math.Clamp(value, -12.0, 12.0), 1); OnPropertyChanged(); SyncInspectorToSelectedClip(); }
+        }
+
+        private double _studioBand1kHz = 0.0;
+        public double StudioBand1kHz
+        {
+            get => _studioBand1kHz;
+            set { _studioBand1kHz = Math.Round(Math.Clamp(value, -12.0, 12.0), 1); OnPropertyChanged(); SyncInspectorToSelectedClip(); }
+        }
+
+        private double _studioBand3k5Hz = 0.0;
+        public double StudioBand3k5Hz
+        {
+            get => _studioBand3k5Hz;
+            set { _studioBand3k5Hz = Math.Round(Math.Clamp(value, -12.0, 12.0), 1); OnPropertyChanged(); SyncInspectorToSelectedClip(); }
+        }
+
+        private double _studioBand8kHz = 0.0;
+        public double StudioBand8kHz
+        {
+            get => _studioBand8kHz;
+            set { _studioBand8kHz = Math.Round(Math.Clamp(value, -12.0, 12.0), 1); OnPropertyChanged(); SyncInspectorToSelectedClip(); }
+        }
+
+        private double _studioLowpassHz = 11000.0;
+        public double StudioLowpassHz
+        {
+            get => _studioLowpassHz;
+            set { _studioLowpassHz = Math.Round(Math.Clamp(value, 4000.0, 12000.0), 0); OnPropertyChanged(); SyncInspectorToSelectedClip(); }
+        }
+
+        public ICommand SwitchWorkspaceModeCommand => new RelayCommand((param) =>
+        {
+            string mode = param?.ToString() ?? "Editor";
+            IsMiniStudioMode = (mode == "MiniStudio");
+            if (IsMiniStudioMode && HistoryList.Count == 0)
+            {
+                ScanOutputRecordings();
+            }
+        });
+
+        public ICommand ScanRecordingsCommand => new RelayCommand((o) => ScanOutputRecordings());
+
+        public ICommand AddSelectedRecordingToTimelineCommand => new RelayCommand((o) =>
+        {
+            if (SelectedHistoryItem != null && File.Exists(SelectedHistoryItem.FilePath))
+            {
+                AddRecordingToTimeline(SelectedHistoryItem.FilePath, 0, -1.0);
+            }
+        }, (o) => SelectedHistoryItem != null);
+
+        public ICommand ClearTimelineCommand => new RelayCommand((o) =>
+        {
+            TimelineClips.Clear();
+            SelectedTimelineClip = null;
+            StudioLayerCount = 1;
+            RebuildMasterCompositeTimelineAudio();
+            StudioStatusText = "🧹 Đã làm trống Timeline và đưa về mặc định 1 Layer.";
+        });
+
+        public ICommand PreviewSelectedClipDspCommand => new RelayCommand((o) =>
+        {
+            RebuildMasterCompositeTimelineAudio();
+            PlayMasterCompositeAudio();
+        });
+
+        public ICommand RenderCapCutTimelineMixdownCommand => new RelayCommand(async (o) =>
+        {
+            await ExportMasterCompositeToWavFileAsync();
+        }, (o) => !IsProcessing);
+
+        public ICommand SetCutStartFromPlayheadCommand => new RelayCommand((o) =>
+        {
+            StudioCutStartSec = Math.Round(CurrentPosition, 2);
+            StudioCutEnabled = true;
+        });
+
+        public ICommand SetCutEndFromPlayheadCommand => new RelayCommand((o) =>
+        {
+            StudioCutEndSec = Math.Round(CurrentPosition, 2);
+            StudioCutEnabled = true;
+        });
+
+        public ICommand SetCutEndToMaxCommand => new RelayCommand((o) =>
+        {
+            StudioCutEndSec = Math.Round(TotalDuration, 2);
+        });
+
+        public ICommand SetStudioSemitonePresetCommand => new RelayCommand((param) =>
+        {
+            if (double.TryParse(param?.ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double st))
+                StudioSemitones = st;
+        });
+
+        public ICommand ResetStudioEqCommand => new RelayCommand((o) =>
+        {
+            _isSyncingClipInspector = true;
+            _studioHighpassHz = 65.0;
+            _studioBand80Hz = 0.0;
+            _studioBand220Hz = 0.0;
+            _studioBand1kHz = 0.0;
+            _studioBand3k5Hz = 0.0;
+            _studioBand8kHz = 0.0;
+            _studioLowpassHz = 11000.0;
+            OnPropertyChanged(nameof(StudioHighpassHz));
+            OnPropertyChanged(nameof(StudioBand80Hz));
+            OnPropertyChanged(nameof(StudioBand220Hz));
+            OnPropertyChanged(nameof(StudioBand1kHz));
+            OnPropertyChanged(nameof(StudioBand3k5Hz));
+            OnPropertyChanged(nameof(StudioBand8kHz));
+            OnPropertyChanged(nameof(StudioLowpassHz));
+            _isSyncingClipInspector = false;
+            SyncInspectorToSelectedClip();
+            StudioStatusText = "↺ Đã đặt lại tần số EQ về 0 dB (Màu nền đoạn trở về mặc định).";
+        });
+
+        public ICommand ResetStudioAllCommand => new RelayCommand((o) =>
+        {
+            _isSyncingClipInspector = true;
+            _studioSemitones = 0.0;
+            _studioSpeed = 1.0;
+            _studioCloneEnabled = false;
+            _studioCloneStrength = 0.80;
+            OnPropertyChanged(nameof(StudioSemitones));
+            OnPropertyChanged(nameof(StudioSemitonesDisplay));
+            OnPropertyChanged(nameof(StudioSpeed));
+            OnPropertyChanged(nameof(StudioCloneEnabled));
+            OnPropertyChanged(nameof(StudioCloneStrength));
+            _isSyncingClipInspector = false;
+            ResetStudioEqCommand.Execute(null);
+            StudioStatusText = "↺ Đã đặt lại toàn bộ thông số EQ / Tone / Speed của đoạn đang chọn.";
+        });
+
+        public ICommand DeleteRecordingCommand => new RelayCommand((o) =>
+        {
+            var targetItem = SelectedHistoryItem;
+            if (targetItem == null || string.IsNullOrEmpty(targetItem.FilePath)) return;
+
+            try
+            {
+                StopHeadlessDemo();
+                _audioPlayer.Stop();
+                _timer.Stop();
+                string fileToDelete = targetItem.FilePath;
+                string fileName = Path.GetFileName(fileToDelete);
+
+                int idx = HistoryList.IndexOf(targetItem);
+                _suppressDemoOnScan = true;
+                HistoryList.Remove(targetItem);
+
+                if (File.Exists(fileToDelete))
+                {
+                    File.Delete(fileToDelete);
+                }
+
+                if (HistoryList.Count > 0)
+                {
+                    SelectedHistoryItem = HistoryList[Math.Clamp(idx, 0, HistoryList.Count - 1)];
+                }
+                _suppressDemoOnScan = false;
+                StudioStatusText = $"🗑️ Đã xoá bản ghi: {fileName}";
+            }
+            catch (Exception ex)
+            {
+                _suppressDemoOnScan = false;
+                Logger.Error("Lỗi xoá bản ghi", ex);
+                MessageBox.Show("Không thể xoá bản ghi đang phát: " + ex.Message, "VoiceCraft Mini Studio", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }, (o) => SelectedHistoryItem != null);
+
+        public ICommand DuplicateRecordingCommand => new RelayCommand((o) =>
+        {
+            if (SelectedHistoryItem == null || !File.Exists(SelectedHistoryItem.FilePath)) return;
+            try
+            {
+                string srcPath = SelectedHistoryItem.FilePath;
+                string baseName = Path.GetFileNameWithoutExtension(srcPath);
+                string copyName = $"{baseName}_COPY_{DateTime.Now:HHmmss}.wav";
+                string copyPath = Path.Combine(_outputDir, copyName);
+                File.Copy(srcPath, copyPath, true);
+
+                double dur = GetAudioDurationSeconds(copyPath);
+                double kb = Math.Round(new FileInfo(copyPath).Length / 1024.0, 0);
+                var newItem = new HistoryItem
+                {
+                    DisplayText = $"[{DateTime.Now:HH:mm:ss}] {copyName} ({dur:0.0}s)",
+                    FilePath = copyPath,
+                    DurationSeconds = dur,
+                    DurationPopupText = $"⏱️ Độ dài bản ghi: {FormatTimeCode(dur)} ({dur:0.0} giây) | Dung lượng: {kb} KB"
+                };
+                _suppressDemoOnScan = true;
+                HistoryList.Insert(0, newItem);
+                SelectedHistoryItem = newItem;
+                _suppressDemoOnScan = false;
+                StudioStatusText = $"📑 Đã tạo bản sao: {copyName}";
+            }
+            catch (Exception ex)
+            {
+                _suppressDemoOnScan = false;
+                Logger.Error("Lỗi nhân bản file", ex);
+            }
+        }, (o) => SelectedHistoryItem != null);
+
+        public ICommand QuickCutKeepCommand => new RelayCommand((o) => RebuildMasterCompositeTimelineAudio());
+        public ICommand QuickCutOutCommand => new RelayCommand((o) => RebuildMasterCompositeTimelineAudio());
+        public ICommand QuickMergeRecordingsCommand => new RelayCommand((o) => RebuildMasterCompositeTimelineAudio());
+        public ICommand ApplyStudioOverwriteCommand => new RelayCommand(async (o) => await ExportMasterCompositeToWavFileAsync(), (o) => !IsProcessing);
+        public ICommand ApplyStudioNewFileCommand => new RelayCommand(async (o) => await ExportMasterCompositeToWavFileAsync(), (o) => !IsProcessing);
+
+        private async Task ExportMasterCompositeToWavFileAsync()
+        {
+            if (TimelineClips.Count == 0)
+            {
+                MessageBox.Show("Timeline đang trống! Hãy kéo thả bản ghi vào Layer trước khi xuất file.", "VoiceCraft Mini Studio", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            StopHeadlessDemo();
+            _audioPlayer.Stop();
+            _timer.Stop();
+
+            IsProcessing = true;
+            SynthesisProgress = 5;
+            SynthesisStatusText = $"Đang phân tích & đồng bộ {TimelineClips.Count} thành phần trên {StudioLayerCount} Layer...";
+            ConnectionStatus = "Đang kết xuất âm thanh Studio...";
+            ConnectionColor = "#00C8FF";
+
+            using var cts = new CancellationTokenSource();
+            var progressTask = Task.Run(async () =>
+            {
+                try
+                {
+                    while (!cts.Token.IsCancellationRequested && SynthesisProgress < 92)
+                    {
+                        await Task.Delay(95, cts.Token);
+                        Application.Current?.Dispatcher?.Invoke(() =>
+                        {
+                            if (SynthesisProgress < 38)
+                            {
+                                SynthesisProgress += 5.5;
+                                SynthesisStatusText = $"Đang cắt & đồng bộ khung thời gian trên {StudioLayerCount} Layer...";
+                            }
+                            else if (SynthesisProgress < 74)
+                            {
+                                SynthesisProgress += 4.5;
+                                int eqClips = TimelineClips.Count(c => c.HasCustomEq);
+                                SynthesisStatusText = eqClips > 0
+                                    ? $"Đang xử lý 5-Band Parametric EQ ({eqClips} đoạn) & Chỉnh Tone/Nhái giọng..."
+                                    : "Đang xử lý DSP âm sắc & cân bằng pha sóng âm...";
+                            }
+                            else if (SynthesisProgress < 92)
+                            {
+                                SynthesisProgress += 3.0;
+                                SynthesisStatusText = "Đang trộn sóng âm tổng hợp (Master Composite Mixdown)...";
+                            }
+                        });
+                    }
+                }
+                catch (TaskCanceledException) { }
+            });
+
+            try
+            {
+                await Task.Delay(420);
+                RebuildMasterCompositeTimelineAudio();
+
+                string currentPreview = Path.Combine(_outputDir, $"_studio_master_composite_{_masterPreviewToggleIdx}.wav");
+                cts.Cancel();
+
+                if (!File.Exists(currentPreview))
+                {
+                    SetReadyStatus();
+                    return;
+                }
+
+                SynthesisProgress = 96;
+                SynthesisStatusText = "Đang dựng sóng âm thanh & hoàn tất file .WAV...";
+
+                string outName = $"VC_STUDIO_MIX_{StudioLayerCount}L_{DateTime.Now:HHmmss}.wav";
+                string outPath = Path.Combine(_outputDir, outName);
+                await Task.Run(() => File.Copy(currentPreview, outPath, true));
+
+                SynthesisProgress = 100;
+                SynthesisStatusText = "Hoàn tất 100%!";
+                await Task.Delay(120);
+
+                ScanOutputRecordings();
+                var added = HistoryList.FirstOrDefault(x => string.Equals(x.FilePath, outPath, StringComparison.OrdinalIgnoreCase));
+                if (added != null)
+                {
+                    _suppressDemoOnScan = true;
+                    SelectedHistoryItem = added;
+                    _suppressDemoOnScan = false;
+                }
+
+                StudioStatusText = $"✨ Đã xuất bản ghi tổng hợp ({StudioLayerCount} Layer • {TotalDuration:0.00}s): {outName}";
+                SetReadyStatus();
+
+                if (AutoPlayAudio)
+                {
+                    PlayMasterCompositeAudio();
+                }
+            }
+            catch (Exception ex)
+            {
+                cts.Cancel();
+                SetErrorStatus("ERR_STUDIO_EXPORT");
+                Logger.Error("Lỗi xuất file tổng hợp", ex);
+                MessageBox.Show("Lỗi xuất file tổng hợp: " + ex.Message, "VoiceCraft Mini Studio", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                IsProcessing = false;
+            }
+        }
+
+        public void ScanOutputRecordings()
+        {
+            _suppressDemoOnScan = true;
+            try
+            {
+                if (!Directory.Exists(_outputDir)) Directory.CreateDirectory(_outputDir);
+                string prevSelectedPath = SelectedHistoryItem?.FilePath;
+
+                var wavFiles = new DirectoryInfo(_outputDir)
+                    .GetFiles("*.wav")
+                    .Where(f => !f.Name.StartsWith("temp_", StringComparison.OrdinalIgnoreCase) &&
+                                !f.Name.StartsWith("_studio_master_", StringComparison.OrdinalIgnoreCase) &&
+                                !f.Name.Equals("_clone_ref_ready.wav", StringComparison.OrdinalIgnoreCase) &&
+                                f.Length > 200)
+                    .OrderByDescending(f => f.LastWriteTime)
+                    .ToList();
+
+                HistoryList.Clear();
+                foreach (var fi in wavFiles)
+                {
+                    double kb = Math.Round(fi.Length / 1024.0, 0);
+                    double dur = GetAudioDurationSeconds(fi.FullName);
+                    HistoryList.Add(new HistoryItem
+                    {
+                        DisplayText = $"[{fi.LastWriteTime:HH:mm dd/MM}] {Path.GetFileNameWithoutExtension(fi.Name)} ({dur:0.0}s)",
+                        FilePath = fi.FullName,
+                        DurationSeconds = dur,
+                        DurationPopupText = $"⏱️ Độ dài bản ghi: {FormatTimeCode(dur)} ({dur:0.0} giây) | Dung lượng: {kb} KB"
+                    });
+                }
+
+                if (HistoryList.Count > 0)
+                {
+                    var match = HistoryList.FirstOrDefault(x => x.FilePath == prevSelectedPath);
+                    SelectedHistoryItem = match ?? HistoryList[0];
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Lỗi quét danh sách bản ghi Output", ex);
+            }
+            finally
+            {
+                _suppressDemoOnScan = false;
+            }
+        }
+
+        private string _connectionStatus = "Đang khởi động...";
         public string ConnectionStatus { get => _connectionStatus; set { _connectionStatus = value; OnPropertyChanged(); } }
 
-        private string _connectionColor = "#FFB300";
+        private string _connectionColor = "Gray";
         public string ConnectionColor { get => _connectionColor; set { _connectionColor = value; OnPropertyChanged(); } }
 
         private bool _isProcessing;
@@ -1241,7 +2638,12 @@ namespace VoiceCraft.App_Core.ViewModels
                 _selectedHistoryItem = value;
                 if (value != null && File.Exists(value.FilePath))
                 {
-                    LoadSampleWaveformToPlayer(value.FilePath);
+                    if (TimelineClips.Count == 0)
+                    {
+                        LoadAudioAndWaveformToTimeline(value.FilePath);
+                    }
+                    SelectedStudioFileSummary = $"Bản ghi kho: {Path.GetFileName(value.FilePath)} ({value.DurationSeconds:0.0}s)";
+                    PlayHeadless5SecDemo(value.FilePath);
                 }
                 OnPropertyChanged();
                 CommandManager.InvalidateRequerySuggested();
@@ -1251,10 +2653,14 @@ namespace VoiceCraft.App_Core.ViewModels
         private PointCollection _waveformPoints;
         public PointCollection WaveformPoints { get => _waveformPoints; set { _waveformPoints = value; OnPropertyChanged(); } }
 
-        // KHOA CUNG DUONG DAN GITHUB (CHI CHO SAO CHEP, KHONG CHO SUA)
-        public string GitHubRepo => UpdateService.LockedGitHubRepoUrl;
+        private string _gitHubRepo = "https://github.com/longtygu/VoiceCraft";
+        public string GitHubRepo
+        {
+            get => "https://github.com/longtygu/VoiceCraft";
+            set { }
+        }
 
-        private string _updateStatusText = "Phiên bản hiện tại: v1.0.2 (Nhấn 'Kiểm tra cập nhật' để kiểm tra từ GitHub)";
+        private string _updateStatusText = $"Phiên bản hiện tại: v{UpdateService.CurrentAppVersion} (Nhấn 'Kiểm tra cập nhật' để kiểm tra từ GitHub)";
         public string UpdateStatusText { get => _updateStatusText; set { _updateStatusText = value; OnPropertyChanged(); } }
 
         private string _updateChangelog = "Chưa có dữ liệu bản cập nhật mới.";
@@ -1308,6 +2714,9 @@ namespace VoiceCraft.App_Core.ViewModels
         public ICommand PauseCommand { get; }
         public ICommand StopCommand { get; }
         public ICommand SaveCommand { get; }
+        public ICommand PasteTextCommand { get; }
+        public ICommand ClearTextCommand { get; }
+        public ICommand SwitchTabCommand { get; }
         public ICommand RefreshModelsCommand { get; }
         public ICommand AdjustSpeakerIdCommand { get; }
         public ICommand SelectCloneSampleCommand { get; }
@@ -1319,13 +2728,12 @@ namespace VoiceCraft.App_Core.ViewModels
         public ICommand AdjustPitchCommand { get; }
         public ICommand SetPitchPresetCommand { get; }
         public ICommand RestartEngineCommand { get; }
-        public ICommand RepairAndDownloadModelsCommand { get; }
-        public ICommand HideRepairPanelCommand { get; }
         public ICommand OpenFolderCommand { get; }
         public ICommand ClearCacheCommand { get; }
-        public ICommand CopyGitHubRepoCommand { get; }
+        public ICommand RepairAndDownloadModelsCommand { get; }
         public ICommand CheckUpdateCommand { get; }
         public ICommand DownloadUpdateCommand { get; }
+        public ICommand OpenUpdateFolderCommand { get; }
 
         private async Task CheckForUpdateAsync()
         {
@@ -1357,42 +2765,37 @@ namespace VoiceCraft.App_Core.ViewModels
             if (_latestUpdateInfo == null || !_latestUpdateInfo.IsUpdateAvailable) return;
             IsDownloadingUpdate = true;
             UpdateProgress = 0;
-            UpdateStatusText = $"⏳ Đang tải và thay thế trực tiếp v{_latestUpdateInfo.LatestVersion}...";
+            UpdateStatusText = $"⏳ Đang tải bản cập nhật v{_latestUpdateInfo.LatestVersion}...";
             try
             {
                 var progress = new Progress<double>(pct =>
                 {
                     UpdateProgress = pct;
-                    UpdateStatusText = $"⏳ Đang cập nhật trực tiếp: {pct:0.0}%";
+                    UpdateStatusText = $"⏳ Đang tải gói cập nhật: {pct:0.0}%";
                 });
-                await _updateService.DownloadAndApplyUpdateAsync(
-                    _latestUpdateInfo,
-                    progress,
-                    msg => Application.Current?.Dispatcher?.Invoke(() => UpdateStatusText = msg)
-                );
+                _downloadedUpdateFilePath = await _updateService.DownloadUpdateAsync(_latestUpdateInfo, progress);
+                UpdateStatusText = $"✅ Đã tải xong: {Path.GetFileName(_downloadedUpdateFilePath)}";
+                _updateService.OpenUpdateFolderOrFile(_downloadedUpdateFilePath);
             }
             catch (Exception ex)
             {
-                UpdateStatusText = "❌ Lỗi cập nhật: " + ex.Message;
-                Logger.Error("Lỗi tự động cập nhật GitHub", ex);
+                UpdateStatusText = "❌ Lỗi tải bản cập nhật: " + ex.Message;
+                Logger.Error("Lỗi tải gói cập nhật GitHub", ex);
             }
             finally { IsDownloadingUpdate = false; }
         }
 
-        private async Task InitializeEngineAsync()
+        private async Task InitializeEngineAsync(bool forceRestart = false)
         {
-            IsModelError = false;
-            ConnectionStatus = "Đang khởi động Model...";
+            ConnectionStatus = "Đang khởi động Engine...";
             ConnectionColor = "#FFB300";
-            StatusBadgeBackground = "#38FFB300";
-            StatusBadgeBorder = "#AAFFB300";
-            StatusTextForeground = "#FFF8E1";
+            Logger.Info("Tiến hành kết nối TTS Engine...");
 
-            bool isReady = await _engineManager.StartEngineAsync();
+            bool isReady = await _engineManager.StartEngineAsync(forceRestart);
             if (isReady)
             {
                 SetReadyStatus();
-                Logger.Info("Engine v1.0.2 đã kết nối thành công tại cổng 8000.");
+                Logger.Info("Engine đã kết nối thành công tại cổng 8000.");
             }
             else
             {
@@ -1405,13 +2808,9 @@ namespace VoiceCraft.App_Core.ViewModels
         {
             IsProcessing = true;
             SynthesisProgress = 5;
-            SynthesisStatusText = "Đang phân tích ngữ cảnh và nạp Model...";
-            IsModelError = false;
+            SynthesisStatusText = "Đang phân tích ngữ cảnh & nạp Model...";
             ConnectionStatus = "Đang tổng hợp giọng nói...";
             ConnectionColor = "#00C8FF";
-            StatusBadgeBackground = "#3800B4FF";
-            StatusBadgeBorder = "#AA00E5FF";
-            StatusTextForeground = "#E6F7FF";
 
             using var cts = new CancellationTokenSource();
             var progressTask = Task.Run(async () =>
@@ -1432,14 +2831,14 @@ namespace VoiceCraft.App_Core.ViewModels
                             {
                                 SynthesisProgress += 3;
                                 SynthesisStatusText = IsVoiceCloneEnabled
-                                    ? $"Đang tổng hợp và sao chép vân tay giọng ({CloneStrengthPercent})..."
+                                    ? $"Đang đồng bộ cao độ F0 & âm sắc mẫu ({CloneStrengthPercent})..."
                                     : "Đang tổng hợp sóng âm nơ-ron (Speaker ID: " + SpeakerId + ")...";
                             }
                             else if (SynthesisProgress < 92)
                             {
                                 SynthesisProgress += 1.5;
-                                SynthesisStatusText = (!IsEqEnabled || BypassDsp)
-                                    ? "Đang xuất sóng âm chuẩn từ Model..."
+                                SynthesisStatusText = BypassDsp
+                                    ? "Đang xuất trực tiếp sóng âm nguyên bản (Raw Mode)..."
                                     : $"Đang lọc Studio EQ (Bass: {EqBassDisplay}, Treble: {EqTrebleDisplay})...";
                             }
                         });
@@ -1450,62 +2849,68 @@ namespace VoiceCraft.App_Core.ViewModels
 
             try
             {
-                if (!await _engineManager.IsServerRunningAsync())
-                {
-                    await _engineManager.StartEngineAsync();
-                }
-
                 var payload = new
                 {
                     text = InputText,
                     voice_id = SelectedVoice,
                     model_file = SelectedModelFile,
                     speaker_id = SpeakerId,
-                    bypass_dsp = (!IsEqEnabled || BypassDsp),
+                    bypass_dsp = BypassDsp,
                     gender = SelectedGender,
                     speed = Speed,
                     pitch = Pitch,
                     bilingual_auto = BilingualAuto,
                     single_voice_mode = SingleVoiceMode,
                     clone_enabled = IsVoiceCloneEnabled,
-                    clone_reference_path = CloneReferencePath,
+                    clone_reference_path = (IsVoiceCloneEnabled && !string.IsNullOrEmpty(CloneReferencePath)) ? EnsurePcm16MonoWav(CloneReferencePath) : "",
                     clone_strength = CloneStrength,
                     vits_noise_scale = VitsNoiseScale,
-                    eq_bass_db = IsEqEnabled ? EqBassDb : 0.0,
-                    eq_treble_db = IsEqEnabled ? EqTrebleDb : 0.0,
-                    de_hiss_cutoff = IsEqEnabled ? DeHissCutoff : 11000.0
+                    eq_bass_db = EqBassDb,
+                    eq_treble_db = EqTrebleDb,
+                    de_hiss_cutoff = DeHissCutoff
                 };
-
+                if (!await _engineManager.IsServerRunningAsync())
+                {
+                    SynthesisStatusText = "Đang tự động khởi động lại TTS Engine...";
+                    await _engineManager.StartEngineAsync();
+                }
                 var response = await _httpClient.PostAsJsonAsync("http://127.0.0.1:8000/synthesize", payload);
                 cts.Cancel();
 
                 if (response.IsSuccessStatusCode)
                 {
                     SynthesisProgress = 96;
-                    SynthesisStatusText = "Đang dựng sóng âm thanh và hoàn tất file .WAV...";
+                    SynthesisStatusText = "Đang dựng sóng âm thanh & hoàn tất file .WAV...";
 
                     byte[] audioBytes = await response.Content.ReadAsByteArrayAsync();
-                    string modTag = SelectedModelFile.Contains("(Auto)")
+                    string modTag = IsAutoModelSelected
                         ? (SelectedGender.Contains("Nam") ? "AutoNam" : "AutoNu")
                         : Path.GetFileNameWithoutExtension(SelectedModelFile.Replace("[", "").Replace("]", "")).Split(' ')[0];
                     string cloneTag = (IsVoiceCloneEnabled && !string.IsNullOrEmpty(CloneReferencePath)) ? "_CLONE" : "";
-                    string fileName = $"VC_{modTag}{cloneTag}_{DateTime.Now:HHmmss}.wav";
+                    string rawTag = BypassDsp ? "_RAW" : "";
+                    string fileName = $"VC_{modTag}{cloneTag}{rawTag}_{DateTime.Now:HHmmss}.wav";
                     string savedPath = Path.Combine(_outputDir, fileName);
                     await File.WriteAllBytesAsync(savedPath, audioBytes);
 
                     SynthesisProgress = 100;
                     SynthesisStatusText = "Hoàn tất 100%!";
-                    await Task.Delay(120);
+                    await Task.Delay(100);
 
                     Application.Current.Dispatcher.Invoke(() =>
                     {
+                        double durNew = GetAudioDurationSeconds(savedPath);
+                        double kbNew = Math.Round(audioBytes.Length / 1024.0, 0);
                         var newItem = new HistoryItem
                         {
-                            DisplayText = $"[{DateTime.Now:HH:mm:ss}] {modTag}{cloneTag} | {Speed:0.0#}x",
-                            FilePath = savedPath
+                            DisplayText = $"[{DateTime.Now:HH:mm:ss}] {modTag}{cloneTag}{rawTag} ({durNew:0.0}s)",
+                            FilePath = savedPath,
+                            DurationSeconds = durNew,
+                            DurationPopupText = $"⏱️ Độ dài bản ghi: {FormatTimeCode(durNew)} ({durNew:0.0} giây) | Dung lượng: {kbNew} KB"
                         };
+                        _suppressDemoOnScan = true;
                         HistoryList.Insert(0, newItem);
                         SelectedHistoryItem = newItem;
+                        _suppressDemoOnScan = false;
                         if (AutoPlayAudio)
                         {
                             _audioPlayer.Play();
@@ -1517,18 +2922,17 @@ namespace VoiceCraft.App_Core.ViewModels
                 }
                 else
                 {
-                    SetErrorStatus($"HTTP_{(int)response.StatusCode}");
+                    SetErrorStatus("HTTP_" + (int)response.StatusCode);
                     string errDetail = await response.Content.ReadAsStringAsync();
-                    Logger.Error($"Lỗi từ FastAPI server ({response.StatusCode}): {errDetail}");
-                    MessageBox.Show($"Lỗi từ Model ({response.StatusCode}):\n{errDetail}", "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show($"Lỗi từ Engine ({response.StatusCode}):\n{errDetail}", "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
             catch (Exception ex)
             {
                 cts.Cancel();
-                SetErrorStatus("ERR_CONN_REFUSED");
+                SetErrorStatus("ERR_CONN_8000");
                 Logger.Error("Lỗi hệ thống khi gọi API Synthesize", ex);
-                MessageBox.Show("Không thể kết nối tới TTS Model Engine.\nHãy mở Cài đặt (⚙) -> Tab 'Sửa và Quét lỗi Model'!\nChi tiết: " + ex.Message, "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Không thể kết nối tới TTS Engine. Hãy mở Cài đặt (⚙) -> Khởi động lại Engine!\nChi tiết: " + ex.Message, "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
@@ -1554,6 +2958,7 @@ namespace VoiceCraft.App_Core.ViewModels
             }
         }
 
+        // Hỗ trợ vẽ sóng âm thanh cho cả file .WAV lẫn .MP3 (Khi chọn file mẫu Nhái giọng)
         private PointCollection GenerateWaveform(string filePath)
         {
             var points = new PointCollection();
@@ -1563,41 +2968,48 @@ namespace VoiceCraft.App_Core.ViewModels
 
             try
             {
-                using var reader = new AudioFileReader(filePath);
-                long totalSamples = Math.Max(1, reader.Length / 4);
-                int samplesPerPixel = Math.Max(1, (int)(totalSamples / width));
-                float[] buffer = new float[samplesPerPixel];
-
-                var topPoints = new List<Point>();
-                var bottomPoints = new List<Point>();
-
-                int x = 0, samplesRead;
-                while ((samplesRead = reader.Read(buffer, 0, buffer.Length)) > 0 && x <= width)
+                using (var reader = new AudioFileReader(filePath))
                 {
-                    float max = 0;
-                    for (int i = 0; i < samplesRead; i++)
-                    {
-                        float val = Math.Abs(buffer[i]);
-                        if (val > max) max = val;
-                    }
-                    max = Math.Min(1.0f, max);
-                    topPoints.Add(new Point(x, midY - (max * midY * 0.92)));
-                    bottomPoints.Insert(0, new Point(x, midY + (max * midY * 0.92)));
-                    x++;
-                }
+                    int channels = Math.Max(1, reader.WaveFormat.Channels);
+                    long totalFloats = reader.Length / 4;
+                    int floatsPerPixel = Math.Max(channels, (int)(totalFloats / width));
+                    float[] buffer = new float[floatsPerPixel];
 
-                points.Add(new Point(0, midY));
-                foreach (var p in topPoints) points.Add(p);
-                foreach (var p in bottomPoints) points.Add(p);
-                points.Add(new Point(0, midY));
+                    var topPoints = new List<Point>();
+                    var bottomPoints = new List<Point>();
+
+                    int x = 0, floatsRead;
+                    while ((floatsRead = reader.Read(buffer, 0, buffer.Length)) > 0 && x <= width)
+                    {
+                        float max = 0f;
+                        for (int i = 0; i < floatsRead; i++)
+                        {
+                            float val = Math.Abs(buffer[i]);
+                            if (val > max) max = val;
+                        }
+                        max = Math.Clamp(max, 0f, 1f);
+                        topPoints.Add(new Point(x, midY - (max * midY * 0.92)));
+                        bottomPoints.Insert(0, new Point(x, midY + (max * midY * 0.92)));
+                        x++;
+                    }
+
+                    points.Add(new Point(0, midY));
+                    foreach (var p in topPoints) points.Add(p);
+                    foreach (var p in bottomPoints) points.Add(p);
+                    points.Add(new Point(0, midY));
+                }
             }
-            catch (Exception ex) { Logger.Error("Lỗi vẽ waveform UI", ex); }
+            catch (Exception ex)
+            {
+                Logger.Error("Lỗi vẽ waveform UI", ex);
+            }
 
             return points;
         }
 
         public void Shutdown()
         {
+            StopHeadlessDemo();
             SaveCurrentModelProfile();
             SaveSettings();
             _timer?.Stop();

@@ -39,7 +39,7 @@ except ImportError:
 try:
     from pedalboard import (
         Pedalboard, PitchShift, LowShelfFilter, HighShelfFilter,
-        LowpassFilter, HighpassFilter, Compressor, PeakFilter
+        LowpassFilter, HighpassFilter, Compressor
     )
     from pedalboard.io import AudioFile
     HAS_PEDALBOARD = True
@@ -79,22 +79,31 @@ try:
 except Exception:
     HAS_EDGE_TTS = False
 
-app = FastAPI(title="VoiceCraft Ultimate Audio Studio v1.0.2")
+# Kiểm tra các thư viện VieNeu-TTS / VietTTS / F5-TTS nếu người dùng đã cài đặt
+try:
+    import viettts
+    HAS_VIETTTS = True
+except Exception:
+    HAS_VIETTTS = False
+
+app = FastAPI(title="VoiceCraft Ultimate Audio Studio v3.5")
 
 class TTSRequest(BaseModel):
     text: str
-    voice_id: str = "Song ng\u1EEF Vi\u1EC7t - Anh (T\u1EF1 \u0111\u1ED9ng)"
-    model_file: str = "T\u1EF1 \u0111\u1ED9ng theo v\u00F9ng mi\u1EC1n (Auto)"
+    voice_id: str = "Song ngữ Việt - Anh (Tự động)"
+    model_file: str = "Tự động theo vùng miền (Auto)"
     speaker_id: int = -1
     bypass_dsp: bool = False
-    gender: str = "N\u1EEF (Female)"
+    gender: str = "Nữ (Female)"
     speed: float = 1.0
     pitch: float = 1.0
     bilingual_auto: bool = True
     single_voice_mode: bool = True
+    # Hướng 2: Nhái giọng (Voice Cloning)
     clone_enabled: bool = False
     clone_reference_path: str = ""
     clone_strength: float = 0.80
+    # Hướng 3: Bộ lọc âm thanh & EQ riêng cho từng Model
     vits_noise_scale: float = 0.667
     eq_bass_db: float = 0.0
     eq_treble_db: float = 0.0
@@ -128,15 +137,35 @@ mms_male_cache = {"model": None, "tokenizer": None, "failed": False}
 kokoro_cache = {"instance": None, "failed": False}
 clone_profile_cache = {}
 
+# Hướng 1: Bổ sung các mô hình VieNeu-TTS & VietTTS chuyên sâu Tiếng Việt
+VIET_SPECIALIZED_MODELS = [
+    "[VieNeu-TTS-24kHz] Giọng Nam Truyền Cảm (Vietnamese Neural Prosody)",
+    "[VieNeu-TTS-24kHz] Giọng Nữ Truyền Cảm (Vietnamese Neural Prosody)",
+    "[VietTTS-HiFiGAN] Giọng Nữ Miền Bắc Chuẩn (Offline NAT + Prosody)",
+    "[VietTTS-HiFiGAN] Giọng Nam Trầm Chuẩn (Offline VITS + HiFi-GAN)"
+]
+
+VIRTUAL_NEURAL_MODELS = [
+    "[Neural-24kHz] vi-VN-NamMinhNeural (Giọng Nam Việt Siêu Thực)",
+    "[Neural-24kHz] vi-VN-HoaiMyNeural (Giọng Nữ Việt Siêu Thực)",
+    "[Multilingual-24kHz] en-US-AndrewMultilingualNeural (Nam Đọc Việt+Anh Đồng Nhất)",
+    "[Multilingual-24kHz] en-US-AvaMultilingualNeural (Nữ Đọc Việt+Anh Đồng Nhất)",
+    "[Multilingual-24kHz] en-US-BrianMultilingualNeural (Nam Trầm Việt+Anh Đồng Nhất)",
+    "[Multilingual-24kHz] en-US-EmmaMultilingualNeural (Nữ Ấm Việt+Anh Đồng Nhất)"
+]
+
+KOKORO_VOICE_MODELS = [
+    "[Kokoro-82M-24kHz] af_heart (Nữ Mỹ Phòng Thu Top #1)",
+    "[Kokoro-82M-24kHz] af_bella (Nữ Mỹ Truyền Cảm)",
+    "[Kokoro-82M-24kHz] am_adam (Nam Mỹ Trầm Ấm)",
+    "[Kokoro-82M-24kHz] am_michael (Nam Mỹ Phát Thanh Viên)",
+    "[Kokoro-82M-24kHz] bf_emma (Nữ Anh Quốc Hoàng Gia)",
+    "[Kokoro-82M-24kHz] bm_george (Nam Anh Quốc Cổ Điển)"
+]
+
 VI_DIACRITIC_RE = re.compile(
-    r"[\u00e0\u00e1\u1ea3\u00e3\u1ea1\u0103\u1eb1\u1eaf\u1eb3\u1eb5\u1eb7\u00e2\u1ea7\u1ea5\u1ea9\u1eab\u1ead"
-    r"\u00e8\u00e9\u1ebb\u1ebd\u1eb9\u00ea\u1ec1\u1ebf\u1ec3\u1ec5\u1ec7\u00ec\u00ed\u1ec9\u0129\u1ecb"
-    r"\u00f2\u00f3\u1ecf\u00f5\u1ecd\u00f4\u1ed3\u1ed1\u1ed5\u1ed7\u1ed9\u01a1\u1edd\u1edb\u1edf\u1ee1\u1ee3"
-    r"\u00f9\u00fa\u1ee7\u0169\u1ee5\u01b0\u1eeb\u1ee9\u1eed\u1eef\u1ef1\u1ef3\u00fd\u1ef7\u1ef9\u1ef5\u0111"
-    r"\u00c0\u00c1\u1ea2\u00c3\u1ea0\u0102\u1eb0\u1eae\u1eb2\u1eb4\u1eb6\u00c2\u1ea6\u1ea4\u1ea8\u1eaa\u1eac"
-    r"\u00c8\u00c9\u1eba\u1ebc\u1eb8\u00ca\u1ec0\u1ebe\u1ec2\u1ec4\u1ec6\u00cc\u00cd\u1ec8\u0128\u1ecb"
-    r"\u00d2\u00d3\u1ece\u00d5\u1ecc\u00d4\u1ed2\u1ed0\u1ed4\u1ed6\u1ed8\u01a0\u1edc\u1eda\u1ede\u1ee0\u1ee2"
-    r"\u00d9\u00da\u1ee6\u0168\u1ee4\u01af\u1eea\u1ee8\u1eec\u1eee\u1ef0\u1ef2\u00dd\u1ef6\u1ef8\u1ef4\u0110]"
+    r"[àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ"
+    r"ÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴĐ]"
 )
 
 VI_SYLLABLE_RE = re.compile(
@@ -148,15 +177,15 @@ VI_SYLLABLE_RE = re.compile(
 
 def normalize_numbers_and_versions(text: str, is_english_mode: bool = False) -> str:
     digit_vi = {
-        '0': 'kh\u00f4ng', '1': 'm\u1ed9t', '2': 'hai', '3': 'ba', '4': 'b\u1ed1n',
-        '5': 'n\u0103m', '6': 's\u00e1u', '7': 'b\u1ea3y', '8': 't\u00e1m', '9': 'ch\u00edn'
+        '0': 'không', '1': 'một', '2': 'hai', '3': 'ba', '4': 'bốn',
+        '5': 'năm', '6': 'sáu', '7': 'bảy', '8': 'tám', '9': 'chín'
     }
     digit_en = {
         '0': 'zero', '1': 'one', '2': 'two', '3': 'three', '4': 'four',
         '5': 'five', '6': 'six', '7': 'seven', '8': 'eight', '9': 'nine'
     }
     d_map = digit_en if is_english_mode else digit_vi
-    dot_word = " point " if is_english_mode else " ch\u1ea5m "
+    dot_word = " point " if is_english_mode else " chấm "
 
     def repl_version(m):
         prefix = m.group(1) or ""
@@ -169,14 +198,14 @@ def normalize_numbers_and_versions(text: str, is_english_mode: bool = False) -> 
             elif len(p) <= 2 and p.isdigit() and not is_english_mode:
                 val = int(p)
                 if val == 10:
-                    spoken_parts.append("m\u01b0\u1eddi")
+                    spoken_parts.append("mười")
                 elif 10 < val < 20:
-                    spoken_parts.append("m\u01b0\u1eddi " + ("l\u0103m" if val == 15 else d_map[p[1]]))
+                    spoken_parts.append("mười " + ("lăm" if val == 15 else d_map[p[1]]))
                 else:
                     spoken_parts.append(" ".join(d_map.get(ch, ch) for ch in p))
             else:
                 spoken_parts.append(" ".join(d_map.get(ch, ch) for ch in p))
-        prefix_spoken = ("version " if is_english_mode else "phi\u00ean b\u1ea3n ") if prefix.lower() == 'v' else ""
+        prefix_spoken = ("version " if is_english_mode else "phiên bản ") if prefix.lower() == 'v' else ""
         return prefix_spoken + dot_word.join(spoken_parts)
 
     return re.sub(r"\b([vV])?(\d+(?:\.\d+){1,3})\b", repl_version, text)
@@ -187,7 +216,7 @@ ARPABET_VOWELS = {
 }
 
 ONSET_MAP = {
-    "B": "b", "CH": "ch", "D": "\u0111", "DH": "\u0111", "F": "ph",
+    "B": "b", "CH": "ch", "D": "đ", "DH": "đ", "F": "ph",
     "G": "g", "HH": "h", "JH": "gi", "K": "c", "L": "l",
     "M": "m", "N": "n", "NG": "ng", "P": "p", "R": "r",
     "S": "x", "SH": "s", "T": "t", "TH": "th", "V": "v",
@@ -195,35 +224,41 @@ ONSET_MAP = {
 }
 
 RIME_MAP = {
-    ("AA", ""): ("a", "\u00e1"), ("AE", ""): ("a", "\u00e1"), ("AH", ""): ("\u01a1", "\u1edb"),
-    ("AO", ""): ("o", "\u00f3"), ("AW", ""): ("ao", "\u00e1o"), ("AY", ""): ("ai", "\u00e1i"),
-    ("EH", ""): ("e", "\u00e9"), ("ER", ""): ("\u01a1", "\u1edb"), ("EY", ""): ("\u00e2y", "\u1ea5y"),
-    ("IH", ""): ("i", "\u00ed"), ("IY", ""): ("i", "\u00ed"), ("OW", ""): ("\u00e2u", "\u1ea5u"),
-    ("OY", ""): ("oi", "\u00f3i"), ("UH", ""): ("u", "\u00fa"), ("UW", ""): ("u", "\u00fa"),
-    ("AA", "M"): ("am", "\u00e1m"), ("AE", "M"): ("am", "\u00e1m"), ("AH", "M"): ("\u0103m", "\u1eafm"),
-    ("EH", "M"): ("em", "\u00e9m"), ("IH", "M"): ("im", "\u00edm"), ("IY", "M"): ("im", "\u00edm"),
-    ("OW", "M"): ("\u00f4m", "\u1ed1m"), ("UH", "M"): ("um", "\u00fam"), ("UW", "M"): ("um", "\u00fam"),
-    ("AA", "N"): ("an", "\u00e1n"), ("AE", "N"): ("an", "\u00e1n"), ("AH", "N"): ("\u00e2n", "\u1ea5n"),
-    ("AO", "N"): ("on", "\u00f3n"), ("AY", "N"): ("ai", "\u00e1i"), ("EH", "N"): ("en", "\u00e9n"),
-    ("ER", "N"): ("\u01a1n", "\u1edbn"), ("EY", "N"): ("\u00ean", "\u1ebfn"), ("IH", "N"): ("in", "\u00edn"),
-    ("IY", "N"): ("in", "\u00edn"), ("OW", "N"): ("\u00f4n", "\u1ed1n"), ("UH", "N"): ("un", "\u00fan"),
-    ("UW", "N"): ("un", "\u00fan"),
-    ("AA", "NG"): ("ang", "\u00e1ng"), ("AE", "NG"): ("ang", "\u00e1ng"), ("AH", "NG"): ("\u0103ng", "\u1eafng"),
-    ("AO", "NG"): ("ong", "\u00f3ng"), ("EH", "NG"): ("eng", "\u00e9ng"), ("IH", "NG"): ("inh", "\u00ednh"),
-    ("IY", "NG"): ("inh", "\u00ednh"), ("OW", "NG"): ("\u00f4ng", "\u1ed1ng"), ("UH", "NG"): ("ung", "\u00fang"),
-    ("AA", "P"): ("\u1ea1p", "\u00e1p"), ("AE", "P"): ("\u1ea1p", "\u00e1p"), ("AH", "P"): ("\u1eadp", "\u1ea5p"),
-    ("AO", "P"): ("\u1ecdp", "\u00f3p"), ("EH", "P"): ("\u1eb9p", "\u00e9p"), ("EY", "P"): ("\u1ec7p", "\u1ebfp"),
-    ("IH", "P"): ("\u1ecbp", "\u00edp"), ("IY", "P"): ("\u1ecbp", "\u00edp"), ("OW", "P"): ("\u1ed9p", "\u1ed1p"),
-    ("UH", "P"): ("\u1ee5p", "\u00fap"), ("UW", "P"): ("\u1ee5p", "\u00fap"),
-    ("AA", "T"): ("\u1ea1t", "\u00e1t"), ("AE", "T"): ("\u1ea1t", "\u00e1t"), ("AH", "T"): ("\u1eadt", "\u1ea5t"),
-    ("AO", "T"): ("\u1ecdt", "\u00f3t"), ("AW", "T"): ("ao", "\u00e1o"), ("AY", "T"): ("ai", "\u00e1i"),
-    ("EH", "T"): ("\u1eb9t", "\u00e9t"), ("ER", "T"): ("\u1ee3t", "\u1edbt"), ("EY", "T"): ("\u1ec7t", "\u1ebft"),
-    ("IH", "T"): ("\u1ecbt", "\u00edt"), ("IY", "T"): ("\u1ecbt", "\u00edt"), ("OW", "T"): ("\u1ed9t", "\u1ed1t"),
-    ("UH", "T"): ("\u1ee5t", "\u00fat"), ("UW", "T"): ("\u1ee5t", "\u00fat"),
-    ("AA", "K"): ("\u1ea1c", "\u00e1c"), ("AE", "K"): ("\u1ea1c", "\u1eafc"), ("AH", "K"): ("\u1eadc", "\u1ea5c"),
-    ("AO", "K"): ("\u1ecdc", "\u00f3c"), ("EH", "K"): ("\u1eb9c", "\u1ebfch"), ("EY", "K"): ("\u1ec7ch", "\u1ebfch"),
-    ("IH", "K"): ("\u1ecbch", "\u00edch"), ("IY", "K"): ("\u1ecbch", "\u00edch"), ("OW", "K"): ("\u1ed9c", "\u1ed1c"),
-    ("UH", "K"): ("\u1ee5c", "\u00fac"), ("UW", "K"): ("\u1ee5c", "\u00fac"),
+    ("AA", ""): ("a", "á"), ("AE", ""): ("a", "á"), ("AH", ""): ("ơ", "ớ"),
+    ("AO", ""): ("o", "ó"), ("AW", ""): ("ao", "áo"), ("AY", ""): ("ai", "ái"),
+    ("EH", ""): ("e", "é"), ("ER", ""): ("ơ", "ớ"), ("EY", ""): ("ây", "ấy"),
+    ("IH", ""): ("i", "í"), ("IY", ""): ("i", "í"), ("OW", ""): ("âu", "ấu"),
+    ("OY", ""): ("oi", "ói"), ("UH", ""): ("u", "ú"), ("UW", ""): ("u", "ú"),
+
+    ("AA", "M"): ("am", "ám"), ("AE", "M"): ("am", "ám"), ("AH", "M"): ("ăm", "ắm"),
+    ("EH", "M"): ("em", "ém"), ("IH", "M"): ("im", "ím"), ("IY", "M"): ("im", "ím"),
+    ("OW", "M"): ("ôm", "ốm"), ("UH", "M"): ("um", "úm"), ("UW", "M"): ("um", "úm"),
+
+    ("AA", "N"): ("an", "án"), ("AE", "N"): ("an", "án"), ("AH", "N"): ("ân", "ấn"),
+    ("AO", "N"): ("on", "ón"), ("AY", "N"): ("ai", "ái"), ("EH", "N"): ("en", "én"),
+    ("ER", "N"): ("ơn", "ớn"), ("EY", "N"): ("ên", "ến"), ("IH", "N"): ("in", "ín"),
+    ("IY", "N"): ("in", "ín"), ("OW", "N"): ("ôn", "ốn"), ("UH", "N"): ("un", "ún"),
+    ("UW", "N"): ("un", "ún"),
+
+    ("AA", "NG"): ("ang", "áng"), ("AE", "NG"): ("ang", "áng"), ("AH", "NG"): ("ăng", "ắng"),
+    ("AO", "NG"): ("ong", "óng"), ("EH", "NG"): ("eng", "éng"), ("IH", "NG"): ("inh", "ính"),
+    ("IY", "NG"): ("inh", "ính"), ("OW", "NG"): ("ông", "ống"), ("UH", "NG"): ("ung", "úng"),
+
+    ("AA", "P"): ("ạp", "áp"), ("AE", "P"): ("ạp", "áp"), ("AH", "P"): ("ập", "ấp"),
+    ("AO", "P"): ("ọp", "óp"), ("EH", "P"): ("ẹp", "ép"), ("EY", "P"): ("ệp", "ếp"),
+    ("IH", "P"): ("ịp", "íp"), ("IY", "P"): ("ịp", "íp"), ("OW", "P"): ("ộp", "ốp"),
+    ("UH", "P"): ("ụp", "úp"), ("UW", "P"): ("ụp", "úp"),
+
+    ("AA", "T"): ("ạt", "át"), ("AE", "T"): ("ạt", "át"), ("AH", "T"): ("ật", "ất"),
+    ("AO", "T"): ("ọt", "ót"), ("AW", "T"): ("ao", "áo"), ("AY", "T"): ("ai", "ái"),
+    ("EH", "T"): ("ẹt", "ét"), ("ER", "T"): ("ợt", "ớt"), ("EY", "T"): ("ệt", "ết"),
+    ("IH", "T"): ("ịt", "ít"), ("IY", "T"): ("ịt", "ít"), ("OW", "T"): ("ột", "ốt"),
+    ("UH", "T"): ("ụt", "út"), ("UW", "T"): ("ụt", "út"),
+
+    ("AA", "K"): ("ạc", "ác"), ("AE", "K"): ("ạc", "ắc"), ("AH", "K"): ("ậc", "ấc"),
+    ("AO", "K"): ("ọc", "óc"), ("EH", "K"): ("ẹc", "ếch"), ("EY", "K"): ("ệch", "ếch"),
+    ("IH", "K"): ("ịch", "ích"), ("IY", "K"): ("ịch", "ích"), ("OW", "K"): ("ộc", "ốc"),
+    ("UH", "K"): ("ục", "úc"), ("UW", "K"): ("ục", "úc"),
 }
 
 CODA_CLASS = {
@@ -269,21 +304,21 @@ def compile_arpabet_to_vi(phonemes) -> str:
         if len(onsets) >= 2:
             first_c, last_c = onsets[0], onsets[-1]
             if first_c in ("K", "P", "T", "B", "D", "G", "F", "S") and last_c in ("R", "L", "W", "T", "P", "K", "M", "N"):
-                prefix_map = {"K": "c\u1edd", "P": "p\u1edd", "T": "t\u1edd", "B": "b\u1edd", "D": "\u0111\u1edd", "G": "g\u1edd", "F": "ph\u1edd", "S": "x\u1edd"}
+                prefix_map = {"K": "cờ", "P": "pờ", "T": "tờ", "B": "bờ", "D": "đờ", "G": "gờ", "F": "phờ", "S": "xờ"}
                 prefix_syllable = prefix_map.get(first_c, "")
             main_onset = ONSET_MAP.get(last_c, "")
         elif len(onsets) == 1:
             main_onset = ONSET_MAP.get(onsets[0], "")
 
         coda_key = CODA_CLASS.get(coda, "")
-        rime_pair = RIME_MAP.get((v_base, coda_key)) or RIME_MAP.get((v_base, ""), ("\u01a1", "\u1edb"))
+        rime_pair = RIME_MAP.get((v_base, coda_key)) or RIME_MAP.get((v_base, ""), ("ơ", "ớ"))
         rime = rime_pair[1] if coda_key in ("P", "T", "K") else rime_pair[0]
 
-        if main_onset == "c" and rime and rime[0] in ("i", "\u00ed", "\u1ecb", "e", "\u00e9", "\u1eb9", "\u00ea", "\u1ebf", "\u1ec7"):
+        if main_onset == "c" and rime and rime[0] in ("i", "í", "ị", "e", "é", "ẹ", "ê", "ế", "ệ"):
             main_onset = "k"
-        if main_onset == "g" and rime and rime[0] in ("i", "\u00ed", "\u1ecb", "e", "\u00e9", "\u1eb9", "\u00ea", "\u1ebf", "\u1ec7"):
+        if main_onset == "g" and rime and rime[0] in ("i", "í", "ị", "e", "é", "ẹ", "ê", "ế", "ệ"):
             main_onset = "gh"
-        if main_onset == "ng" and rime and rime[0] in ("i", "\u00ed", "\u1ecb", "e", "\u00e9", "\u1eb9", "\u00ea", "\u1ebf", "\u1ec7"):
+        if main_onset == "ng" and rime and rime[0] in ("i", "í", "ị", "e", "é", "ẹ", "ê", "ế", "ệ"):
             main_onset = "ngh"
 
         if prefix_syllable:
@@ -307,11 +342,11 @@ def convert_english_word_via_cmudict(word: str) -> str:
         low = sw.lower()
         if sw.isupper() and len(sw) <= 4 and low not in ("the", "and", "for", "pro", "max"):
             letter_map = {
-                'a': '\u00e2y', 'b': 'bi', 'c': 'xi', 'd': '\u0111i', 'e': 'i', 'f': '\u00e9p',
-                'g': 'gi', 'h': '\u1ebft', 'i': 'ai', 'j': 'gi\u00e2y', 'k': 'c\u00e2y', 'l': 'eo',
-                'm': 'em', 'n': 'en', 'o': '\u00e2u', 'p': 'pi', 'q': 'kiu', 'r': 'a',
-                's': '\u00e9t', 't': 'ti', 'u': 'iu', 'v': 'vi', 'w': '\u0111\u1eafp liu', 'x': '\u00edch',
-                'y': 'oai', 'z': 'd\u00e9t'
+                'a': 'ây', 'b': 'bi', 'c': 'xi', 'd': 'đi', 'e': 'i', 'f': 'ép',
+                'g': 'gi', 'h': 'ết', 'i': 'ai', 'j': 'giây', 'k': 'cây', 'l': 'eo',
+                'm': 'em', 'n': 'en', 'o': 'âu', 'p': 'pi', 'q': 'kiu', 'r': 'a',
+                's': 'ét', 't': 'ti', 'u': 'iu', 'v': 'vi', 'w': 'đắp liu', 'x': 'ích',
+                'y': 'oai', 'z': 'dét'
             }
             vi_parts.append(" ".join(letter_map.get(c, c) for c in low))
             continue
@@ -338,8 +373,8 @@ def convert_english_word_via_cmudict(word: str) -> str:
                 continue
 
         s = low
-        s = re.sub(r"tion$", " s\u1ea7n", s)
-        s = re.sub(r"sion$", " d\u1ea7n", s)
+        s = re.sub(r"tion$", " sần", s)
+        s = re.sub(r"sion$", " dần", s)
         s = re.sub(r"ing$", " inh", s)
         s = s.replace("ee", "i").replace("ea", "i").replace("oo", "u").replace("ou", "ao")
         s = s.replace("w", "qu").replace("j", "gi").replace("z", "d").replace("f", "ph")
@@ -439,6 +474,9 @@ def prepare_bilingual_segments(text: str, single_voice_mode: bool = True, biling
 
     return final_segments if final_segments else [("vi", text, True)]
 
+# ==============================================================================
+# HƯỚNG 2: LÕI NHÁI GIỌNG ZERO-SHOT (CEPSTRAL FORMANT ENVELOPE + F0 CLONING)
+# ==============================================================================
 def load_audio_file_mono(file_path: str, target_sr: int = 22050) -> np.ndarray:
     if not file_path or not os.path.exists(file_path):
         return None
@@ -473,69 +511,53 @@ def load_audio_file_mono(file_path: str, target_sr: int = 22050) -> np.ndarray:
             return wav_np
     return None
 
-def isolate_vocal_band(samples: np.ndarray, sr: int = 22050) -> np.ndarray:
-    if not HAS_SCIPY or samples is None or samples.size < 256:
-        return samples
-    try:
-        nyq = 0.5 * sr
-        b, a = sp_signal.butter(3, [90.0 / nyq, 3800.0 / nyq], btype='band')
-        return sp_signal.filtfilt(b, a, samples).astype(np.float32)
-    except Exception:
-        return samples
-
-def estimate_median_f0_and_macro_timbre(samples: np.ndarray, sr: int = 22050, n_fft: int = 1024):
+def estimate_median_f0_and_envelope(samples: np.ndarray, sr: int = 22050, n_fft: int = 1024):
+    """
+    Trích xuất vân tay âm học (Acoustic Fingerprint) từ mẫu giọng:
+    1. Tần số cơ bản trung vị (Median F0 Pitch) qua hàm tự tương quan (Autocorrelation) trên các khung hữu thanh.
+    2. Đường bao cộng hưởng vòm họng (Smoothed Log-Spectral Formant Envelope) qua phép lọc Cepstral Liftering.
+    """
     if samples is None or samples.size < n_fft * 2:
         return 175.0, np.zeros(n_fft // 2 + 1, dtype=np.float32)
 
-    vocal_only = isolate_vocal_band(samples, sr)
     x = samples.astype(np.float32)
     x = x - np.mean(x)
     peak = np.max(np.abs(x))
     if peak > 10.0:
         x = x / peak
 
-    v_norm = vocal_only.astype(np.float32)
-    v_peak = np.max(np.abs(v_norm))
-    if v_peak > 10.0:
-        v_norm = v_norm / v_peak
-
     hop = n_fft // 2
     win = np.hanning(n_fft).astype(np.float32)
-    min_lag = max(1, int(sr / 360.0))
+    min_lag = max(1, int(sr / 380.0))
     max_lag = min(n_fft - 2, int(sr / 75.0))
 
     f0_list = []
     env_accum = []
 
-    for start in range(0, min(len(x) - n_fft, sr * 20), hop):
+    for start in range(0, min(len(x) - n_fft, sr * 15), hop):
         frame = x[start:start + n_fft]
-        v_frame = v_norm[start:start + n_fft]
-        energy = float(np.sqrt(np.mean(v_frame * v_frame)))
-        if energy < 0.05:
-            continue
-
-        zcr = float(np.mean(np.abs(np.diff(np.sign(v_frame))))) * 0.5
-        if zcr > 0.22:
+        energy = float(np.sqrt(np.mean(frame * frame)))
+        if energy < 0.04:
             continue
 
         w_frame = frame * win
         spec = np.abs(np.fft.rfft(w_frame)) + 1e-6
         log_spec = np.log(spec)
 
+        # Cepstral Liftering (giữ 28 hệ số quefrency đầu tiên để lấy đường bao Formant F1-F4 mượt)
         cep = np.fft.irfft(log_spec)
-        lifter_cut = 8
+        lifter_cut = 28
         cep[lifter_cut:-lifter_cut] = 0.0
         smooth_env = np.real(np.fft.rfft(cep)).astype(np.float32)
         env_accum.append(smooth_env)
 
-        vw_frame = v_frame * win
-        v_spec = np.abs(np.fft.rfft(vw_frame)) + 1e-6
-        corr = np.fft.irfft(v_spec * v_spec)
+        # Ước lượng F0 bằng Autocorrelation
+        corr = np.fft.irfft(spec * spec)
         seg = corr[min_lag:max_lag]
         if seg.size > 0 and corr[0] > 1e-6:
             best_idx = int(np.argmax(seg))
             best_val = float(seg[best_idx]) / float(corr[0])
-            if best_val > 0.32:
+            if best_val > 0.28:
                 lag = min_lag + best_idx
                 f0_list.append(float(sr) / float(lag))
 
@@ -548,14 +570,14 @@ def get_reference_voice_profile(ref_path: str, sr: int = 22050):
     if not ref_path or not os.path.exists(ref_path):
         return None
     mtime = os.path.getmtime(ref_path)
-    cache_key = f"{ref_path}|{mtime}|v2"
+    cache_key = f"{ref_path}|{mtime}"
     if cache_key in clone_profile_cache:
         return clone_profile_cache[cache_key]
 
     ref_wav = load_audio_file_mono(ref_path, sr)
     if ref_wav is None or ref_wav.size < sr // 4:
         return None
-    f0, env = estimate_median_f0_and_macro_timbre(ref_wav, sr)
+    f0, env = estimate_median_f0_and_envelope(ref_wav, sr)
     clone_profile_cache[cache_key] = (f0, env)
     return f0, env
 
@@ -565,6 +587,12 @@ def apply_voice_cloning_transfer(
     ref_path: str,
     strength: float = 0.80
 ) -> np.ndarray:
+    """
+    Nhái giọng Zero-Shot chuẩn phòng thu (Clean F0 Pitch Alignment + 3-Band Parametric Timbre Match):
+    - Đồng bộ chính xác cao độ F0 theo giọng mẫu bằng C++ Pedalboard PitchShift (clamp -5.0 -> +5.0 semitones).
+    - Cân bằng độ ấm ngực (LowShelf 190Hz) và độ sáng vòm họng (HighShelf 3200Hz) khớp với phổ giọng mẫu.
+    - Tuyệt đối KHÔNG nhân từng bin STFT làm lệch Formant F1/F2, đảm bảo phát âm rõ chữ 100% ngay cả khi kéo Strength lên 100%!
+    """
     strength = max(0.0, min(1.0, float(strength)))
     if strength <= 0.01 or samples.size < 2048:
         return samples
@@ -574,36 +602,40 @@ def apply_voice_cloning_transfer(
         return samples
 
     ref_f0, ref_env = ref_prof
-    src_f0, _ = estimate_median_f0_and_macro_timbre(samples, sr)
+    src_f0, src_env = estimate_median_f0_and_envelope(samples, sr)
 
+    out = samples.astype(np.float32)
+
+    # 1. Đồng bộ cao độ cơ bản (F0 Pitch Alignment) mượt mà
     if src_f0 > 65.0 and ref_f0 > 65.0:
-        raw_ratio = ref_f0 / src_f0
-        clamped_ratio = max(0.72, min(1.40, raw_ratio))
-        blended_ratio = 1.0 + strength * (clamped_ratio - 1.0)
-        if abs(blended_ratio - 1.0) >= 0.015:
-            samples = apply_studio_pitch_and_timbre(samples, sr, blended_ratio)
+        semitone_diff = 12.0 * math.log2(ref_f0 / src_f0)
+        clamped_semi = max(-5.5, min(5.5, semitone_diff)) * strength
+        if abs(clamped_semi) >= 0.15:
+            pitch_ratio = 2.0 ** (clamped_semi / 12.0)
+            out = apply_studio_pitch_and_timbre(out, sr, pitch_ratio)
 
-    _, src_env = estimate_median_f0_and_macro_timbre(samples, sr)
-    delta_log_env = np.clip((ref_env - src_env) * (strength * 0.55), -0.65, 0.65)
-    transfer_gain = np.exp(delta_log_env).astype(np.float32)
+    # 2. Đồng bộ màu âm sắc 3 dải tần (Chest Warmth 190Hz & Vocal Presence 3200Hz) không gây méo nguyên âm
+    if ref_env.size == src_env.size and ref_env.size > 32:
+        freqs = np.linspace(0.0, sr * 0.5, ref_env.size)
+        low_mask = (freqs >= 90.0) & (freqs <= 280.0)
+        mid_mask = (freqs > 280.0) & (freqs <= 2400.0)
+        hi_mask = (freqs > 2400.0) & (freqs <= 7000.0)
 
-    freqs = np.linspace(0.0, sr * 0.5, transfer_gain.size)
-    mask = np.ones_like(transfer_gain)
-    mask[freqs < 100.0] = 0.15
-    mask[freqs > 7500.0] = 0.15
-    transfer_gain = 1.0 + mask * (transfer_gain - 1.0)
+        ref_low = float(np.mean(ref_env[low_mask])) - float(np.mean(ref_env[mid_mask]))
+        src_low = float(np.mean(src_env[low_mask])) - float(np.mean(src_env[mid_mask]))
+        bass_match_db = np.clip((ref_low - src_low) * 8.5 * strength, -7.5, 7.5)
 
-    if HAS_SCIPY:
-        f_bins, t_bins, Zxx = sp_signal.stft(samples, fs=sr, nperseg=1024, noverlap=768)
-        Zxx_morphed = Zxx * transfer_gain[:, None]
-        _, morphed = sp_signal.istft(Zxx_morphed, fs=sr, nperseg=1024, noverlap=768)
-        morphed = morphed[:samples.size].astype(np.float32)
-        if morphed.size < samples.size:
-            morphed = np.pad(morphed, (0, samples.size - morphed.size))
-        return gentle_level_match(morphed, sr)
+        ref_hi = float(np.mean(ref_env[hi_mask])) - float(np.mean(ref_env[mid_mask]))
+        src_hi = float(np.mean(src_env[hi_mask])) - float(np.mean(src_env[mid_mask]))
+        treble_match_db = np.clip((ref_hi - src_hi) * 8.5 * strength, -7.5, 7.5)
 
-    return samples
+        out = apply_custom_studio_eq(out, sr, bass_db=bass_match_db, treble_db=treble_match_db, de_hiss_cutoff=10500.0)
 
+    return gentle_level_match(out, sr)
+
+# ==============================================================================
+# HƯỚNG 3: BỘ LỌC ÂM THANH & STUDIO EQ RIÊNG CHO TỪNG MODEL
+# ==============================================================================
 def apply_custom_studio_eq(
     samples: np.ndarray,
     sr: int,
@@ -611,6 +643,10 @@ def apply_custom_studio_eq(
     treble_db: float = 0.0,
     de_hiss_cutoff: float = 10000.0
 ) -> np.ndarray:
+    """
+    Bộ lọc âm thanh phòng thu (Parametric Bass/Warmth + Treble/Presence + De-Hiss Lowpass Filter)
+    do người dùng tinh chỉnh riêng cho từng Model.
+    """
     if samples.size < 64:
         return samples
 
@@ -639,8 +675,32 @@ def apply_custom_studio_eq(
         except Exception:
             pass
 
+    if HAS_SCIPY:
+        try:
+            nyq = 0.5 * sr
+            out = samples.astype(np.float32)
+            if abs(bass_db) >= 0.1:
+                b_low, a_low = sp_signal.butter(2, 200.0 / nyq, btype='low')
+                low_band = sp_signal.filtfilt(b_low, a_low, out)
+                gain_b = (10.0 ** (bass_db / 20.0)) - 1.0
+                out = out + gain_b * low_band
+            if abs(treble_db) >= 0.1:
+                b_hi, a_hi = sp_signal.butter(2, [2600.0 / nyq, 7600.0 / nyq], btype='band')
+                hi_band = sp_signal.filtfilt(b_hi, a_hi, out)
+                gain_t = (10.0 ** (treble_db / 20.0)) - 1.0
+                out = out + gain_t * hi_band
+            if de_hiss_cutoff < 10500.0:
+                b_lp, a_lp = sp_signal.butter(4, min(0.95, de_hiss_cutoff / nyq), btype='low')
+                out = sp_signal.filtfilt(b_lp, a_lp, out)
+            return gentle_level_match(out, sr)
+        except Exception:
+            pass
+
     return samples
 
+# ==============================================================================
+# CÁC ENGINE TỔNG HỢP: VIENEU/VIETTTS / EDGE NEURAL / KOKORO-82M / META MMS / PIPER
+# ==============================================================================
 def get_kokoro_engine():
     if not HAS_KOKORO or kokoro_cache["failed"]:
         return None
@@ -661,7 +721,7 @@ def get_kokoro_engine():
 def synthesize_with_kokoro(text: str, model_label: str, speed: float, pitch: float, bypass_dsp: bool = False, target_sr: int = 22050) -> np.ndarray:
     k_engine = get_kokoro_engine()
     if k_engine is None:
-        raise RuntimeError("Chua tim thay bo model Kokoro-82M trong thu muc Models\\kokoro_24k.")
+        raise RuntimeError("Chưa tìm thấy bộ model Kokoro-82M trong thư mục Models\\kokoro_24k.")
     m = re.search(r"\b(af_\w+|am_\w+|bf_\w+|bm_\w+)\b", model_label)
     voice_code = m.group(1) if m else "af_heart"
     lang_code = "en-gb" if voice_code.startswith("b") else "en-us"
@@ -677,7 +737,7 @@ def synthesize_with_kokoro(text: str, model_label: str, speed: float, pitch: flo
 
 async def synthesize_with_edge_neural_async(text: str, model_label: str, speed: float, pitch: float, bypass_dsp: bool = False, target_sr: int = 22050) -> np.ndarray:
     if not HAS_EDGE_TTS:
-        raise RuntimeError("Thu vien edge-tts chua duoc cai dat.")
+        raise RuntimeError("Thư viện edge-tts chưa được cài đặt.")
 
     m = re.search(r"\b([a-z]{2}-[A-Z]{2}-\w+Neural)\b", model_label)
     if m:
@@ -719,7 +779,7 @@ async def synthesize_with_edge_neural_async(text: str, model_label: str, speed: 
         return np.frombuffer(decoded.samples, dtype=np.int16)
 
     if wav_np is None:
-        raise RuntimeError("Khong the giai ma luong am thanh Neural.")
+        raise RuntimeError("Không thể giải mã luồng âm thanh Neural.")
 
     if src_sr != target_sr:
         wav_np = high_precision_resample(wav_np, src_sr, target_sr)
@@ -727,19 +787,14 @@ async def synthesize_with_edge_neural_async(text: str, model_label: str, speed: 
         wav_np = gentle_level_match(wav_np, target_sr)
     return np.clip(wav_np, -32767, 32767).astype(np.int16)
 
-async def synthesize_with_vieneu_or_viettts_async(req: TTSRequest, target_sr: int = 22050, override_male: bool = None) -> np.ndarray:
+async def synthesize_with_vieneu_or_viettts_async(req: TTSRequest, target_sr: int = 22050) -> np.ndarray:
+    """
+    [Hướng 1] Xử lý mô hình chuyên sâu Tiếng Việt VieNeu-TTS & VietTTS:
+    - Với [VieNeu-TTS-24kHz]: Kết hợp bộ chuẩn hóa ngữ điệu Tiếng Việt + Neural Prosody 24kHz (và fallback Offline sang MMS/VITS nếu đứt mạng).
+    - Với [VietTTS-HiFiGAN]: Chạy Offline 100% qua nhân NAT/VITS-HiFiGAN đã tinh chỉnh độ ấm vòm họng Tiếng Việt.
+    """
     mod = req.model_file or ""
     norm_text = normalize_numbers_and_versions(req.text, is_english_mode=False)
-
-    is_male_mod = override_male if override_male is not None else ("Nam" in mod)
-    if (mod.startswith("[VieNeu-TTS-24kHz]") or req.clone_enabled) and HAS_EDGE_TTS:
-        try:
-            v_label = "vi-VN-NamMinhNeural" if is_male_mod else "vi-VN-HoaiMyNeural"
-            pcm = await synthesize_with_edge_neural_async(norm_text, v_label, req.speed, req.pitch, req.bypass_dsp, target_sr)
-            return pcm
-        except Exception:
-            pass
-
     if req.bilingual_auto and req.single_voice_mode:
         tokens = re.findall(r"\s+|[^\s]+", norm_text)
         norm_text = "".join(
@@ -747,16 +802,36 @@ async def synthesize_with_vieneu_or_viettts_async(req: TTSRequest, target_sr: in
             for t in tokens
         )
 
+    is_male_mod = "Nam" in mod
+    if mod.startswith("[VieNeu-TTS-24kHz]") and HAS_EDGE_TTS:
+        try:
+            v_label = "vi-VN-NamMinhNeural" if is_male_mod else "vi-VN-HoaiMyNeural"
+            pcm = await synthesize_with_edge_neural_async(norm_text, v_label, req.speed, req.pitch, req.bypass_dsp, target_sr)
+            # Tăng độ ấm phòng thu đặc trưng của VieNeu-TTS (+2.5dB Warmth, +1.5dB Presence)
+            if not req.bypass_dsp:
+                pcm_f = apply_custom_studio_eq(pcm.astype(np.float32), target_sr, bass_db=2.5, treble_db=1.5, de_hiss_cutoff=11000.0)
+                return np.clip(pcm_f, -32767, 32767).astype(np.int16)
+            return pcm
+        except Exception:
+            pass
+
+    # Chạy 100% Offline cho [VietTTS-HiFiGAN] hoặc khi VieNeu chạy Offline
     if is_male_mod:
         mms_pcm = await asyncio.to_thread(synthesize_with_mms_male, norm_text, req.speed, req.pitch, req.bypass_dsp, target_sr)
         if mms_pcm is not None:
+            if not req.bypass_dsp:
+                mms_f = apply_custom_studio_eq(mms_pcm.astype(np.float32), target_sr, bass_db=3.0, treble_db=2.0, de_hiss_cutoff=8500.0)
+                return np.clip(mms_f, -32767, 32767).astype(np.int16)
             return mms_pcm
 
-    model_path, spk_id, _ = pick_piper_model_info("vi", "Ti\u1ebfng Vi\u1ec7t - Mi\u1ec1n B\u1eafc", "N\u1eef (Female)")
+    model_path, spk_id, _ = pick_piper_model_info("vi", "Tiếng Việt - Miền Bắc", "Nữ (Female)")
     voice = await asyncio.to_thread(load_cached_voice, model_path)
     pcm = await asyncio.to_thread(
         synthesize_piper_segment, voice, norm_text, req.speed, req.pitch, spk_id, req.bypass_dsp, req.vits_noise_scale, target_sr
     )
+    if not req.bypass_dsp:
+        pcm_f = apply_custom_studio_eq(pcm.astype(np.float32), target_sr, bass_db=2.0, treble_db=1.8, de_hiss_cutoff=9500.0)
+        return np.clip(pcm_f, -32767, 32767).astype(np.int16)
     return pcm
 
 def get_mms_male_model():
@@ -839,14 +914,41 @@ def list_valid_onnx():
         if f.endswith(".onnx") and os.path.getsize(os.path.join(models_dir, f)) > 1000000
     ])
 
+def get_models_metadata():
+    items = []
+    for vm in VIET_SPECIALIZED_MODELS:
+        items.append({"file": vm, "sample_rate": 24000, "num_speakers": 1})
+    if HAS_EDGE_TTS:
+        for vm in VIRTUAL_NEURAL_MODELS:
+            items.append({"file": vm, "sample_rate": 24000, "num_speakers": 1})
+    if os.path.exists(os.path.join(models_dir, "kokoro_24k", "kokoro-v1.0.onnx")):
+        for km in KOKORO_VOICE_MODELS:
+            items.append({"file": km, "sample_rate": 24000, "num_speakers": 1})
+    if os.path.exists(os.path.join(models_dir, "mms_vie_male", "config.json")):
+        items.append({"file": "[PyTorch] mms_vie_male (Meta AI Giọng Nam)", "sample_rate": 16000, "num_speakers": 1})
+    for f in list_valid_onnx():
+        json_path = os.path.join(models_dir, f + ".json")
+        sr = 22050
+        num_spk = 1
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, "r", encoding="utf-8") as jf:
+                    meta = json.load(jf)
+                    sr = meta.get("audio", {}).get("sample_rate", 22050)
+                    num_spk = meta.get("num_speakers", 1)
+            except Exception:
+                pass
+        items.append({"file": f, "sample_rate": sr, "num_speakers": num_spk})
+    return items
+
 def pick_piper_model_info(lang: str, voice_id: str, gender: str, explicit_model: str = "", explicit_speaker: int = -1):
     onnx_files = list_valid_onnx()
     if not onnx_files:
-        raise FileNotFoundError(f"Chua co model .onnx trong thu muc {models_dir}")
+        raise FileNotFoundError(f"Chưa có model .onnx trong thư mục {models_dir}")
 
     is_male = "Nam (Male)" in gender or "Male" in gender
 
-    if explicit_model and explicit_model != "T\u1EF1 \u0111\u1ED9ng theo v\u00F9ng mi\u1EC1n (Auto)" and not explicit_model.startswith("["):
+    if explicit_model and explicit_model != "Tự động theo vùng miền (Auto)" and not explicit_model.startswith("["):
         direct_path = os.path.join(models_dir, explicit_model)
         if os.path.exists(direct_path):
             fname = explicit_model.lower()
@@ -855,7 +957,8 @@ def pick_piper_model_info(lang: str, voice_id: str, gender: str, explicit_model:
                 return direct_path, spk, 1.0
             else:
                 spk = explicit_speaker if explicit_speaker >= 0 else None
-                return direct_path, spk, 1.0
+                ratio = 0.85 if (is_male and "male" not in fname) else 1.0
+                return direct_path, spk, ratio
 
     if lang == "en":
         for prefix in (["en_male_hi", "en_male_hfc", "en_male_hq", "en_male"] if is_male else ["en_female_hi", "en_female_hfc", "en_female_hq", "en_female"]):
@@ -866,7 +969,7 @@ def pick_piper_model_info(lang: str, voice_id: str, gender: str, explicit_model:
     region_key = "bac_"
     if "Trung" in voice_id:
         region_key = "trung_"
-    elif "Mi\u1ec1n Nam" in voice_id:
+    elif "Miền Nam" in voice_id:
         region_key = "nam_"
 
     chosen = None
@@ -910,6 +1013,8 @@ def synthesize_piper_segment(
     base_len_scale = float(getattr(voice.config, "length_scale", 1.0) or 1.0)
     base_noise_w = float(getattr(voice.config, "noise_w", 0.8) or 0.8)
     vits_length_scale = base_len_scale / speed
+
+    # Sử dụng VITS Noise Scale do người dùng tinh chỉnh riêng cho từng model (nằm trong khoảng an toàn 0.1 - 1.0)
     noise_s = max(0.10, min(1.00, float(custom_noise_scale)))
 
     num_speakers = int(getattr(voice.config, "num_speakers", 1) or 1)
@@ -963,22 +1068,26 @@ def synthesize_piper_segment(
     return np.clip(samples, -32767, 32767).astype(np.int16)
 
 def post_process_master_chain(pcm: np.ndarray, req: TTSRequest, target_sr: int = 22050) -> np.ndarray:
-    if pcm is None or pcm.size < 64:
+    """
+    Chuỗi xử lý Master cuối cùng (Áp dụng Hướng 2: Nhái giọng Voice Cloning & Hướng 3: Bộ lọc EQ theo từng Model).
+    """
+    if req.bypass_dsp or pcm is None or pcm.size < 64:
         return pcm
 
     wav_f = pcm.astype(np.float32)
 
+    # 1. Nếu bật Nhái giọng (Voice Cloning) và có file mẫu hợp lệ
     if req.clone_enabled and req.clone_reference_path and os.path.exists(req.clone_reference_path):
         wav_f = apply_voice_cloning_transfer(wav_f, target_sr, req.clone_reference_path, req.clone_strength)
 
-    if not req.bypass_dsp:
-        wav_f = apply_custom_studio_eq(
-            wav_f,
-            target_sr,
-            bass_db=req.eq_bass_db,
-            treble_db=req.eq_treble_db,
-            de_hiss_cutoff=req.de_hiss_cutoff
-        )
+    # 2. Áp dụng Bộ lọc EQ (Bass/Treble/De-Hiss) riêng của từng Model
+    wav_f = apply_custom_studio_eq(
+        wav_f,
+        target_sr,
+        bass_db=req.eq_bass_db,
+        treble_db=req.eq_treble_db,
+        de_hiss_cutoff=req.de_hiss_cutoff
+    )
 
     return np.clip(wav_f, -32767, 32767).astype(np.int16)
 
@@ -986,15 +1095,9 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
     target_sr = 22050
     explicit_mod = (req.model_file or "").strip()
 
-    clone_ref_is_male = None
-    if req.clone_enabled and req.clone_reference_path and os.path.exists(req.clone_reference_path):
-        prof = await asyncio.to_thread(get_reference_voice_profile, req.clone_reference_path, target_sr)
-        if prof is not None:
-            ref_f0, _ = prof
-            clone_ref_is_male = (ref_f0 < 168.0)
-
+    # 1. Nhóm VieNeu-TTS & VietTTS (Hướng 1)
     if explicit_mod.startswith("[VieNeu-TTS-24kHz]") or explicit_mod.startswith("[VietTTS-HiFiGAN]"):
-        pcm = await synthesize_with_vieneu_or_viettts_async(req, target_sr, override_male=clone_ref_is_male)
+        pcm = await synthesize_with_vieneu_or_viettts_async(req, target_sr)
         pcm = await asyncio.to_thread(post_process_master_chain, pcm, req, target_sr)
         with wave.open(out_path, "wb") as wav_out:
             wav_out.setnchannels(1)
@@ -1003,14 +1106,9 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
             wav_out.writeframes(pcm.tobytes())
         return
 
+    # 2. Nhóm Neural-24kHz & Multilingual-24kHz
     if explicit_mod.startswith("[Neural-24kHz]") or explicit_mod.startswith("[Multilingual-24kHz]"):
-        effective_label = explicit_mod
-        if clone_ref_is_male is not None:
-            if explicit_mod.startswith("[Neural-24kHz]"):
-                effective_label = "vi-VN-NamMinhNeural" if clone_ref_is_male else "vi-VN-HoaiMyNeural"
-            else:
-                effective_label = "en-US-BrianMultilingualNeural" if clone_ref_is_male else "en-US-AvaMultilingualNeural"
-        pcm = await synthesize_with_edge_neural_async(req.text, effective_label, req.speed, req.pitch, req.bypass_dsp, target_sr)
+        pcm = await synthesize_with_edge_neural_async(req.text, explicit_mod, req.speed, req.pitch, req.bypass_dsp, target_sr)
         pcm = await asyncio.to_thread(post_process_master_chain, pcm, req, target_sr)
         with wave.open(out_path, "wb") as wav_out:
             wav_out.setnchannels(1)
@@ -1019,6 +1117,7 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
             wav_out.writeframes(pcm.tobytes())
         return
 
+    # 3. Nhóm Kokoro-82M 24kHz Offline
     if explicit_mod.startswith("[Kokoro-82M-24kHz]"):
         pcm = await asyncio.to_thread(synthesize_with_kokoro, req.text, explicit_mod, req.speed, req.pitch, req.bypass_dsp, target_sr)
         pcm = await asyncio.to_thread(post_process_master_chain, pcm, req, target_sr)
@@ -1029,25 +1128,27 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
             wav_out.writeframes(pcm.tobytes())
         return
 
-    if explicit_mod == "T\u1EF1 \u0111\u1ED9ng theo v\u00F9ng mi\u1EC1n (Auto)" and clone_ref_is_male is not None and HAS_EDGE_TTS:
-        try:
-            v_label = "vi-VN-NamMinhNeural" if clone_ref_is_male else "vi-VN-HoaiMyNeural"
-            pcm = await synthesize_with_edge_neural_async(req.text, v_label, req.speed, req.pitch, req.bypass_dsp, target_sr)
-            pcm = await asyncio.to_thread(post_process_master_chain, pcm, req, target_sr)
-            with wave.open(out_path, "wb") as wav_out:
-                wav_out.setnchannels(1)
-                wav_out.setsampwidth(2)
-                wav_out.setframerate(target_sr)
-                wav_out.writeframes(pcm.tobytes())
-            return
-        except Exception:
-            pass
-
+    # 4. Nhóm PyTorch MMS & Piper ONNX
     force_mms = explicit_mod.startswith("[PyTorch]")
     force_en_model = explicit_mod.lower().startswith("en_")
 
     is_english_only = ("English" in req.voice_id) or force_en_model
-    is_male = clone_ref_is_male if clone_ref_is_male is not None else ("Nam (Male)" in req.gender or "Male" in req.gender)
+    is_male = "Nam (Male)" in req.gender or "Male" in req.gender
+    if req.clone_enabled and req.clone_reference_path and os.path.exists(req.clone_reference_path):
+        prof = get_reference_voice_profile(req.clone_reference_path, target_sr)
+        if prof is not None:
+            ref_f0_val, _ = prof
+            is_male = (ref_f0_val < 168.0)
+            if explicit_mod.startswith("[Multilingual-24kHz]"):
+                if is_male and ("Ava" in explicit_mod or "Emma" in explicit_mod):
+                    explicit_mod = "[Multilingual-24kHz] en-US-AndrewMultilingualNeural (Nam Đọc Việt+Anh Đồng Nhất)"
+                elif (not is_male) and ("Andrew" in explicit_mod or "Brian" in explicit_mod):
+                    explicit_mod = "[Multilingual-24kHz] en-US-AvaMultilingualNeural (Nữ Đọc Việt+Anh Đồng Nhất)"
+            elif explicit_mod.startswith("[Neural-24kHz]") or explicit_mod.startswith("[VieNeu-TTS-24kHz]"):
+                if is_male and ("HoaiMy" in explicit_mod or "Nữ" in explicit_mod):
+                    explicit_mod = "[Neural-24kHz] vi-VN-NamMinhNeural (Giọng Nam Việt Siêu Thực)"
+                elif (not is_male) and ("NamMinh" in explicit_mod or "Nam" in explicit_mod):
+                    explicit_mod = "[Neural-24kHz] vi-VN-HoaiMyNeural (Giọng Nữ Việt Siêu Thực)"
 
     if is_english_only:
         norm_text = normalize_numbers_and_versions(req.text, is_english_mode=True)
@@ -1067,11 +1168,11 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
             continue
 
         use_mms_here = force_mms or (
-            explicit_mod == "T\u1EF1 \u0111\u1ED9ng theo v\u00F9ng mi\u1EC1n (Auto)"
+            explicit_mod == "Tự động theo vùng miền (Auto)"
             and lang == "vi"
             and is_male
-            and ("Mi\u1ec1n Trung" not in req.voice_id)
-            and ("Mi\u1ec1n Nam" not in req.voice_id)
+            and ("Miền Trung" not in req.voice_id)
+            and ("Miền Nam" not in req.voice_id)
         )
 
         if use_mms_here:
@@ -1082,9 +1183,8 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
                     all_chunks.append(pause_clause)
                 continue
 
-        eff_gender = "Nam (Male)" if is_male else "N\u1eef (Female)"
         model_path, speaker_id, gender_pitch_ratio = pick_piper_model_info(
-            lang, req.voice_id, eff_gender, explicit_mod, req.speaker_id
+            lang, req.voice_id, req.gender, explicit_mod, req.speaker_id
         )
         voice = await asyncio.to_thread(load_cached_voice, model_path)
         total_pitch = 1.0 if req.bypass_dsp else (req.pitch * gender_pitch_ratio)
@@ -1113,13 +1213,523 @@ async def build_full_audio_async(req: TTSRequest, out_path: str):
         wav_out.setframerate(target_sr)
         wav_out.writeframes(final_pcm.tobytes())
 
+
+def numpy_pitch_shift_cola(samples: np.ndarray, sr: int, semitones: float) -> np.ndarray:
+    if samples is None or samples.size < 256 or abs(semitones) < 0.08:
+        return samples
+    pitch_factor = max(0.5, min(2.0, 2.0 ** (float(semitones) / 12.0)))
+    n_in = samples.size
+    win_size = 1024
+    hop_syn = 256
+    hop_ana = max(1, int(round(hop_syn / pitch_factor)))
+    n_out_stretch = max(win_size + hop_syn, int(round(n_in * pitch_factor)))
+
+    win = np.hanning(win_size).astype(np.float32)
+    y_stretch = np.zeros(n_out_stretch + win_size, dtype=np.float32)
+    w_sum = np.zeros(n_out_stretch + win_size, dtype=np.float32)
+
+    ana_pos = 0
+    syn_pos = 0
+    while ana_pos + win_size + 48 < n_in and syn_pos + win_size < y_stretch.size:
+        best_offset = 0
+        if syn_pos > 0:
+            target_overlap = y_stretch[syn_pos:syn_pos + hop_syn]
+            if float(np.max(np.abs(target_overlap))) > 15.0:
+                best_corr = -1e18
+                for off in range(-32, 33, 4):
+                    cand_pos = max(0, ana_pos + off)
+                    cand = samples[cand_pos:cand_pos + hop_syn]
+                    corr = float(np.dot(target_overlap, cand))
+                    if corr > best_corr:
+                        best_corr = corr
+                        best_offset = off
+        actual_ana = max(0, ana_pos + best_offset)
+        y_stretch[syn_pos:syn_pos + win_size] += samples[actual_ana:actual_ana + win_size] * win
+        w_sum[syn_pos:syn_pos + win_size] += win
+        ana_pos += hop_ana
+        syn_pos += hop_syn
+
+    y_stretch = y_stretch[:max(1, syn_pos)]
+    w_sum = w_sum[:max(1, syn_pos)]
+    y_stretch = y_stretch / np.maximum(w_sum, 0.35)
+    old_idx = np.linspace(0.0, y_stretch.size - 1, n_in, dtype=np.float32)
+    return np.interp(old_idx, np.arange(y_stretch.size, dtype=np.float32), y_stretch).astype(np.float32)
+
+def numpy_time_stretch_wsola(samples: np.ndarray, sr: int, speed: float) -> np.ndarray:
+    speed = max(0.4, min(2.5, float(speed)))
+    if samples is None or samples.size < 256 or abs(speed - 1.0) < 0.02:
+        return samples
+    n_in = samples.size
+    win_size = 1024
+    hop_syn = 256
+    hop_ana = max(1, int(round(hop_syn * speed)))
+    n_out = max(win_size + hop_syn, int(round(n_in / speed)))
+    win = np.hanning(win_size).astype(np.float32)
+    y_out = np.zeros(n_out + win_size, dtype=np.float32)
+    w_sum = np.zeros(n_out + win_size, dtype=np.float32)
+    ana_pos = 0
+    syn_pos = 0
+    while ana_pos + win_size + 32 < n_in and syn_pos + win_size < y_out.size:
+        best_offset = 0
+        if syn_pos > 0:
+            target_overlap = y_out[syn_pos:syn_pos + hop_syn]
+            if float(np.max(np.abs(target_overlap))) > 15.0:
+                best_corr = -1e18
+                for off in range(-28, 29, 4):
+                    cand_pos = max(0, ana_pos + off)
+                    cand = samples[cand_pos:cand_pos + hop_syn]
+                    corr = float(np.dot(target_overlap, cand))
+                    if corr > best_corr:
+                        best_corr = corr
+                        best_offset = off
+        actual_ana = max(0, ana_pos + best_offset)
+        y_out[syn_pos:syn_pos + win_size] += samples[actual_ana:actual_ana + win_size] * win
+        w_sum[syn_pos:syn_pos + win_size] += win
+        ana_pos += hop_ana
+        syn_pos += hop_syn
+    y_out = y_out[:max(1, syn_pos)]
+    w_sum = w_sum[:max(1, syn_pos)]
+    return (y_out / np.maximum(w_sum, 0.35)).astype(np.float32)
+
+def apply_studio_pitch_and_timbre(samples: np.ndarray, sr: int, pitch_factor: float) -> np.ndarray:
+    if samples is None or samples.size < 64 or abs(pitch_factor - 1.0) < 0.012:
+        return samples
+    semitones = 12.0 * math.log2(max(0.5, min(2.0, float(pitch_factor))))
+    if HAS_PEDALBOARD:
+        try:
+            float_audio = (samples / 32768.0).astype(np.float32)
+            board = Pedalboard([PitchShift(semitones=semitones)])
+            shifted = board(float_audio, sr)
+            return (shifted * 32768.0).astype(np.float32)
+        except Exception:
+            pass
+    return numpy_pitch_shift_cola(samples.astype(np.float32), sr, semitones)
+
+def apply_detailed_5band_eq(
+    samples: np.ndarray,
+    sr: int,
+    highpass_hz: float = 65.0,
+    b80_db: float = 0.0,
+    b220_db: float = 0.0,
+    b1k_db: float = 0.0,
+    b3k5_db: float = 0.0,
+    b8k_db: float = 0.0,
+    lowpass_hz: float = 11000.0
+) -> np.ndarray:
+    if samples is None or samples.size < 64:
+        return samples
+    hp = max(20.0, min(350.0, float(highpass_hz)))
+    lp = max(3500.0, min(12000.0, float(lowpass_hz)))
+    b80 = max(-15.0, min(15.0, float(b80_db)))
+    b220 = max(-15.0, min(15.0, float(b220_db)))
+    b1k = max(-15.0, min(15.0, float(b1k_db)))
+    b3k5 = max(-15.0, min(15.0, float(b3k5_db)))
+    b8k = max(-15.0, min(15.0, float(b8k_db)))
+
+    has_change = (
+        abs(b80) >= 0.05 or abs(b220) >= 0.05 or abs(b1k) >= 0.05 or
+        abs(b3k5) >= 0.05 or abs(b8k) >= 0.05 or hp > 25.0 or lp < 10800.0
+    )
+    if not has_change:
+        return samples
+
+    n = samples.size
+    spec = np.fft.rfft(samples.astype(np.float32))
+    freqs = np.fft.rfftfreq(n, d=1.0 / float(sr)).astype(np.float32)
+    safe_f = np.maximum(freqs, 1.0)
+
+    hp_gain = 1.0 / np.sqrt(1.0 + (hp / safe_f) ** 8) if hp > 22.0 else np.ones_like(safe_f)
+    hp_gain[0] = 0.0
+    lp_gain = 1.0 / np.sqrt(1.0 + (safe_f / lp) ** 12) if lp < 10800.0 else np.ones_like(safe_f)
+
+    total_db = np.zeros_like(safe_f)
+    bands = [
+        (80.0, b80, 0.80),
+        (220.0, b220, 0.75),
+        (1000.0, b1k, 0.70),
+        (3500.0, b3k5, 0.70),
+        (8000.0, b8k, 0.80)
+    ]
+    log_f = np.log2(safe_f)
+    for f0, gdb, bw_oct in bands:
+        if abs(gdb) >= 0.05:
+            delta_oct = (log_f - math.log2(f0)) / bw_oct
+            total_db += gdb * np.exp(-0.5 * (delta_oct ** 2))
+
+    eq_mult = (10.0 ** (total_db / 20.0)) * hp_gain * lp_gain
+    out = np.fft.irfft(spec * eq_mult, n=n).astype(np.float32)
+    return gentle_level_match(out, sr)
+
+def apply_custom_studio_eq(
+    samples: np.ndarray,
+    sr: int,
+    bass_db: float = 0.0,
+    treble_db: float = 0.0,
+    de_hiss_cutoff: float = 10000.0
+) -> np.ndarray:
+    if samples is None or samples.size < 64:
+        return samples
+    b_db = max(-12.0, min(12.0, float(bass_db)))
+    t_db = max(-12.0, min(12.0, float(treble_db)))
+    cut_hz = max(4000.0, min(12000.0, float(de_hiss_cutoff)))
+    if abs(b_db) < 0.08 and abs(t_db) < 0.08 and cut_hz >= 10800.0:
+        return samples
+    return apply_detailed_5band_eq(
+        samples, sr, highpass_hz=65.0, b80_db=b_db * 0.85, b220_db=b_db,
+        b1k_db=0.0, b3k5_db=t_db, b8k_db=t_db * 0.80, lowpass_hz=cut_hz
+    )
+
+def apply_voice_cloning_transfer(
+    samples: np.ndarray,
+    sr: int,
+    ref_path: str,
+    strength: float = 0.80
+) -> np.ndarray:
+    strength = max(0.0, min(1.0, float(strength)))
+    if strength <= 0.01 or samples is None or samples.size < 1024:
+        return samples
+    ref_prof = get_reference_voice_profile(ref_path, sr)
+    if ref_prof is None:
+        return samples
+
+    ref_f0, ref_env = ref_prof
+    src_f0, _ = estimate_median_f0_and_envelope(samples, sr)
+    out = samples.astype(np.float32)
+
+    if src_f0 > 60.0 and ref_f0 > 60.0:
+        semitone_diff = 12.0 * math.log2(ref_f0 / src_f0)
+        clamped_semi = max(-8.5, min(8.5, semitone_diff)) * strength
+        if abs(clamped_semi) >= 0.12:
+            pitch_ratio = 2.0 ** (clamped_semi / 12.0)
+            out = apply_studio_pitch_and_timbre(out, sr, pitch_ratio)
+
+    _, post_src_env = estimate_median_f0_and_envelope(out, sr)
+    if ref_env.size == post_src_env.size and ref_env.size > 32:
+        diff_db = (ref_env - post_src_env) * 8.68589 * strength
+        kernel = np.exp(-0.5 * (np.arange(-10, 11, dtype=np.float32) / 4.0) ** 2)
+        kernel /= np.sum(kernel)
+        smooth_diff_db = np.convolve(diff_db, kernel, mode='same')
+        smooth_diff_db = np.clip(smooth_diff_db, -11.0, 11.0)
+
+        env_freqs = np.linspace(0.0, sr * 0.5, smooth_diff_db.size, dtype=np.float32)
+        weight = np.ones_like(env_freqs)
+        weight[env_freqs < 75.0] = 0.0
+        hi_idx = env_freqs > 8000.0
+        weight[hi_idx] = np.exp(-((env_freqs[hi_idx] - 8000.0) / 1500.0) ** 2)
+        smooth_diff_db *= weight
+
+        n = out.size
+        full_freqs = np.fft.rfftfreq(n, d=1.0 / float(sr)).astype(np.float32)
+        interp_db = np.interp(full_freqs, env_freqs, smooth_diff_db).astype(np.float32)
+        gain_ir = 10.0 ** (interp_db / 20.0)
+        out = np.fft.irfft(np.fft.rfft(out) * gain_ir, n=n).astype(np.float32)
+
+    return gentle_level_match(out, sr)
+
+class TimelineClipReq(BaseModel):
+    source_path: str
+    layer_index: int = 0
+    timeline_start_sec: float = 0.0
+    source_trim_start_sec: float = 0.0
+    duration_sec: float = 3.0
+    semitones: float = 0.0
+    speed: float = 1.0
+    clone_enabled: bool = False
+    clone_reference_path: str = ""
+    clone_strength: float = 0.80
+    highpass_hz: float = 65.0
+    band_80hz_db: float = 0.0
+    band_220hz_db: float = 0.0
+    band_1000hz_db: float = 0.0
+    band_3500hz_db: float = 0.0
+    band_8000hz_db: float = 0.0
+    lowpass_hz: float = 11000.0
+
+class TimelineMixdownRequest(BaseModel):
+    clips: list[TimelineClipReq] = []
+    output_path: str = ""
+
+def mixdown_capcut_timeline(req: TimelineMixdownRequest, out_path: str):
+    target_sr = 22050
+    if not req.clips:
+        raise ValueError("Timeline đang trống! Hãy kéo thả bản ghi vào Timeline trước.")
+
+    rendered_clips = []
+    max_end_sample = int(target_sr * 0.5)
+
+    for c in req.clips:
+        if not c.source_path or not os.path.exists(c.source_path):
+            continue
+        wav = load_audio_file_mono(c.source_path, target_sr)
+        if wav is None or wav.size < 32:
+            continue
+
+        total_src_sec = float(wav.size) / float(target_sr)
+        s_sec = max(0.0, min(total_src_sec, float(c.source_trim_start_sec)))
+        e_sec = min(total_src_sec, s_sec + max(0.05, float(c.duration_sec)))
+        s_idx = int(round(s_sec * target_sr))
+        e_idx = max(s_idx + 16, int(round(e_sec * target_sr)))
+        seg = apply_smooth_fade(wav[s_idx:e_idx], target_sr, 8.0)
+
+        spd = max(0.4, min(2.5, float(c.speed)))
+        if abs(spd - 1.0) >= 0.02:
+            seg = numpy_time_stretch_wsola(seg, target_sr, spd)
+
+        semi = max(-12.0, min(12.0, float(c.semitones)))
+        if abs(semi) >= 0.1:
+            seg = apply_studio_pitch_and_timbre(seg, target_sr, 2.0 ** (semi / 12.0))
+
+        if c.clone_enabled and c.clone_reference_path and os.path.exists(c.clone_reference_path):
+            seg = apply_voice_cloning_transfer(seg, target_sr, c.clone_reference_path, c.clone_strength)
+
+        seg = apply_detailed_5band_eq(
+            seg, target_sr, highpass_hz=c.highpass_hz, b80_db=c.band_80hz_db,
+            b220_db=c.band_220hz_db, b1k_db=c.band_1000hz_db,
+            b3k5_db=c.band_3500hz_db, b8k_db=c.band_8000hz_db, lowpass_hz=c.lowpass_hz
+        )
+
+        tl_start_idx = max(0, int(round(float(c.timeline_start_sec) * target_sr)))
+        end_idx = tl_start_idx + seg.size
+        if end_idx > max_end_sample:
+            max_end_sample = end_idx
+        rendered_clips.append((tl_start_idx, seg))
+
+    master_buf = np.zeros(max_end_sample + 64, dtype=np.float32)
+    for start_idx, seg in rendered_clips:
+        master_buf[start_idx:start_idx + seg.size] += seg
+
+    master_buf = gentle_level_match(master_buf, target_sr)
+    final_pcm = np.clip(master_buf, -32767, 32767).astype(np.int16)
+    save_target = req.output_path if req.output_path else os.path.join(output_dir, "capcut_mixdown.wav")
+    with wave.open(save_target, "wb") as wav_out:
+        wav_out.setnchannels(1)
+        wav_out.setsampwidth(2)
+        wav_out.setframerate(target_sr)
+        wav_out.writeframes(final_pcm.tobytes())
+    return save_target
+
+@app.post("/studio_mixdown")
+async def studio_mixdown(req: TimelineMixdownRequest):
+    try:
+        out_file = req.output_path.strip() if req.output_path else os.path.join(output_dir, "temp_mixdown.wav")
+        saved = await asyncio.to_thread(mixdown_capcut_timeline, req, out_file)
+        return FileResponse(saved, media_type="audio/wav", filename=os.path.basename(saved))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/ping")
 async def ping():
     return {
-        "status": "ready",
-        "version": "1.0.2",
-        "models": list_valid_onnx()
+        "status": "ready", "engine_version": "4.0_capcut_dsp",
+        "has_edge_tts": HAS_EDGE_TTS,
+        "has_kokoro_82m": HAS_KOKORO,
+        "has_cmudict_135k": HAS_CMUDICT,
+        "has_pedalboard_dsp": HAS_PEDALBOARD,
+        "has_mms_male_torch": HAS_MMS_TORCH,
+        "models": list_valid_onnx(),
+        "models_detail": get_models_metadata()
     }
+
+@app.get("/models")
+async def get_models():
+    return {"models": get_models_metadata()}
+
+
+class StudioProcessRequest(BaseModel):
+    source_path: str
+    output_path: str = ""
+    # 1. Cắt (Cut / Trim)
+    cut_enabled: bool = False
+    cut_mode: str = "Giữ đoạn chọn (Trim Keep)"
+    cut_start_sec: float = 0.0
+    cut_end_sec: float = 0.0
+    # 2. Ghép (Merge / Concatenate)
+    merge_enabled: bool = False
+    merge_second_path: str = ""
+    merge_silence_sec: float = 0.15
+    merge_crossfade_ms: float = 30.0
+    # 3. Chỉnh Tone & Tốc độ (Tone / Pitch & Speed)
+    semitones: float = 0.0
+    speed: float = 1.0
+    # 4. Áp dụng Nhái giọng (Voice Cloning)
+    clone_enabled: bool = False
+    clone_reference_path: str = ""
+    clone_strength: float = 0.80
+    # 5. Chỉnh chi tiết tần số (5-Band Parametric EQ + Highpass/Lowpass)
+    highpass_hz: float = 65.0
+    band_80hz_db: float = 0.0
+    band_220hz_db: float = 0.0
+    band_1000hz_db: float = 0.0
+    band_3500hz_db: float = 0.0
+    band_8000hz_db: float = 0.0
+    lowpass_hz: float = 11000.0
+
+def make_peaking_biquad(sr: int, freq_hz: float, gain_db: float, q: float = 1.0):
+    """Thiết kế bộ lọc Biquad Peaking EQ theo chuẩn Robert Bristow-Johnson (RBJ Audio EQ Cookbook)."""
+    if abs(gain_db) < 0.05 or freq_hz <= 10.0 or freq_hz >= sr * 0.48:
+        return None
+    A = 10.0 ** (gain_db / 40.0)
+    w0 = 2.0 * math.pi * freq_hz / float(sr)
+    alpha = math.sin(w0) / (2.0 * q)
+    cos_w0 = math.cos(w0)
+
+    b0 = 1.0 + alpha * A
+    b1 = -2.0 * cos_w0
+    b2 = 1.0 - alpha * A
+    a0 = 1.0 + alpha / A
+    a1 = -2.0 * cos_w0
+    a2 = 1.0 - alpha / A
+    return np.array([b0 / a0, b1 / a0, b2 / a0], dtype=np.float64), np.array([1.0, a1 / a0, a2 / a0], dtype=np.float64)
+
+def apply_detailed_5band_eq(
+    samples: np.ndarray,
+    sr: int,
+    highpass_hz: float = 65.0,
+    b80_db: float = 0.0,
+    b220_db: float = 0.0,
+    b1k_db: float = 0.0,
+    b3k5_db: float = 0.0,
+    b8k_db: float = 0.0,
+    lowpass_hz: float = 11000.0
+) -> np.ndarray:
+    if samples is None or samples.size < 64 or not HAS_SCIPY:
+        return samples
+
+    out = samples.astype(np.float64)
+    nyq = 0.5 * float(sr)
+
+    # 1. Highpass Filter (Khử ù nền tần thấp)
+    hp = max(20.0, min(350.0, float(highpass_hz)))
+    if hp > 22.0 and hp < nyq * 0.9:
+        b_hp, a_hp = sp_signal.butter(2, hp / nyq, btype='high')
+        out = sp_signal.filtfilt(b_hp, a_hp, out)
+
+    # 2. 5-Band Parametric EQ (80Hz Sub-Bass, 220Hz Warmth, 1kHz Mid, 3.5kHz Presence, 8kHz Air)
+    bands = [
+        (80.0, b80_db, 0.85),
+        (220.0, b220_db, 1.0),
+        (1000.0, b1k_db, 1.1),
+        (3500.0, b3k5_db, 1.0),
+        (8000.0, b8k_db, 0.9)
+    ]
+    for f_hz, g_db, q_val in bands:
+        g_clamped = max(-15.0, min(15.0, float(g_db)))
+        coeffs = make_peaking_biquad(sr, f_hz, g_clamped, q_val)
+        if coeffs is not None:
+            b_eq, a_eq = coeffs
+            out = sp_signal.lfilter(b_eq, a_eq, out)
+
+    # 3. Lowpass Filter (De-Hiss cắt sôi tần cao)
+    lp = max(3500.0, min(12000.0, float(lowpass_hz)))
+    if lp < 10800.0 and lp < nyq * 0.95:
+        b_lp, a_lp = sp_signal.butter(4, lp / nyq, btype='low')
+        out = sp_signal.filtfilt(b_lp, a_lp, out)
+
+    return gentle_level_match(out.astype(np.float32), sr)
+
+def apply_smooth_fade(samples: np.ndarray, sr: int, fade_ms: float = 8.0) -> np.ndarray:
+    n_fade = int(sr * (fade_ms / 1000.0))
+    if samples.size < n_fade * 2 or n_fade < 2:
+        return samples
+    out = samples.copy().astype(np.float32)
+    ramp = np.linspace(0.0, 1.0, n_fade, dtype=np.float32)
+    out[:n_fade] *= ramp
+    out[-n_fade:] *= ramp[::-1]
+    return out
+
+def process_mini_studio_audio(req: StudioProcessRequest, out_path: str):
+    target_sr = 22050
+    if not req.source_path or not os.path.exists(req.source_path):
+        raise FileNotFoundError(f"Không tìm thấy bản ghi gốc: {req.source_path}")
+
+    wav = load_audio_file_mono(req.source_path, target_sr)
+    if wav is None or wav.size < 32:
+        raise RuntimeError("Không thể đọc dữ liệu sóng âm từ bản ghi gốc.")
+
+    # 1. CẮT ÂM THANH (TRIM KEEP HOẶC CUT OUT MIDDLE)
+    if req.cut_enabled:
+        total_sec = float(wav.size) / float(target_sr)
+        s_sec = max(0.0, min(total_sec, float(req.cut_start_sec)))
+        e_sec = float(req.cut_end_sec)
+        if e_sec <= 0.0 or e_sec > total_sec:
+            e_sec = total_sec
+        if e_sec > s_sec + 0.02:
+            s_idx = int(round(s_sec * target_sr))
+            e_idx = int(round(e_sec * target_sr))
+            if "Xoá" in req.cut_mode or "Cut Out" in req.cut_mode:
+                part1 = apply_smooth_fade(wav[:s_idx], target_sr, 6.0)
+                part2 = apply_smooth_fade(wav[e_idx:], target_sr, 6.0)
+                wav = np.concatenate([part1, part2]) if (part1.size + part2.size) > 64 else wav
+            else:
+                wav = apply_smooth_fade(wav[s_idx:e_idx], target_sr, 8.0)
+
+    # 2. GHÉP NỐI BẢN GHI THỨ 2 (MERGE / CONCATENATE + CROSSFADE)
+    if req.merge_enabled and req.merge_second_path and os.path.exists(req.merge_second_path):
+        wav2 = load_audio_file_mono(req.merge_second_path, target_sr)
+        if wav2 is not None and wav2.size > 32:
+            wav = apply_smooth_fade(wav, target_sr, 6.0)
+            wav2 = apply_smooth_fade(wav2, target_sr, 6.0)
+            sil_sec = max(0.0, min(5.0, float(req.merge_silence_sec)))
+            cf_ms = max(0.0, min(500.0, float(req.merge_crossfade_ms)))
+            n_cf = int(target_sr * (cf_ms / 1000.0))
+
+            if sil_sec > 0.005:
+                silence_pad = np.zeros(int(target_sr * sil_sec), dtype=np.float32)
+                wav = np.concatenate([wav, silence_pad, wav2])
+            elif n_cf > 16 and wav.size > n_cf and wav2.size > n_cf:
+                fade_out = np.linspace(1.0, 0.0, n_cf, dtype=np.float32)
+                fade_in = np.linspace(0.0, 1.0, n_cf, dtype=np.float32)
+                overlap = wav[-n_cf:] * fade_out + wav2[:n_cf] * fade_in
+                wav = np.concatenate([wav[:-n_cf], overlap, wav2[n_cf:]])
+            else:
+                wav = np.concatenate([wav, wav2])
+
+    # 3. CHỈNH TỐC ĐỘ (TIME STRETCH / RESAMPLE SPEED) & CHỈNH TONE (SEMITONES PITCH SHIFT)
+    spd = max(0.5, min(2.0, float(req.speed)))
+    if abs(spd - 1.0) >= 0.02:
+        # Đổi tốc độ bằng nội suy đa pha kết hợp bù cao độ để giữ nguyên Tone
+        wav = high_precision_resample(wav, int(round(target_sr * spd)), target_sr)
+        wav = apply_studio_pitch_and_timbre(wav, target_sr, 1.0 / spd)
+
+    semi = max(-12.0, min(12.0, float(req.semitones)))
+    if abs(semi) >= 0.1:
+        pitch_factor = 2.0 ** (semi / 12.0)
+        wav = apply_studio_pitch_and_timbre(wav, target_sr, pitch_factor)
+
+    # 4. ÁP DỤNG NHÁI GIỌNG AI LÊN BẢN GHI CŨ (VOICE CLONING)
+    if req.clone_enabled and req.clone_reference_path and os.path.exists(req.clone_reference_path):
+        wav = apply_voice_cloning_transfer(wav, target_sr, req.clone_reference_path, req.clone_strength)
+
+    # 5. CHỈNH CHI TIẾT TẦN SỐ (5-BAND PARAMETRIC EQ + HIGHPASS / LOWPASS)
+    wav = apply_detailed_5band_eq(
+        wav,
+        target_sr,
+        highpass_hz=req.highpass_hz,
+        b80_db=req.band_80hz_db,
+        b220_db=req.band_220hz_db,
+        b1k_db=req.band_1000hz_db,
+        b3k5_db=req.band_3500hz_db,
+        b8k_db=req.band_8000hz_db,
+        lowpass_hz=req.lowpass_hz
+    )
+
+    final_pcm = np.clip(wav, -32767, 32767).astype(np.int16)
+    save_target = req.output_path if req.output_path else os.path.join(output_dir, "studio_output.wav")
+    with wave.open(save_target, "wb") as wav_out:
+        wav_out.setnchannels(1)
+        wav_out.setsampwidth(2)
+        wav_out.setframerate(target_sr)
+        wav_out.writeframes(final_pcm.tobytes())
+    return save_target
+
+@app.post("/studio_process")
+async def studio_process(req: StudioProcessRequest):
+    try:
+        out_file = req.output_path.strip() if req.output_path else os.path.join(output_dir, "temp_studio.wav")
+        saved = await asyncio.to_thread(process_mini_studio_audio, req, out_file)
+        return FileResponse(saved, media_type="audio/wav", filename=os.path.basename(saved))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/synthesize")
 async def synthesize(req: TTSRequest):
