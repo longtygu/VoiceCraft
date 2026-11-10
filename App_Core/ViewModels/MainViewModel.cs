@@ -72,8 +72,8 @@ namespace VoiceCraft.App_Core.ViewModels
         private readonly AudioPlayer _audioPlayer;
         private readonly UpdateService _updateService;
         private readonly DispatcherTimer _timer;
-        private readonly string _outputDir;
-        private readonly string _modelsDir;
+        private string _outputDir;
+        private string _modelsDir;
         private readonly string _settingsFilePath;
         private string _currentAudioPath;
         private bool _isTimerUpdating;
@@ -209,7 +209,7 @@ namespace VoiceCraft.App_Core.ViewModels
             OpenFolderCommand = new RelayCommand((param) =>
             {
                 string target = param?.ToString();
-                string folder = target == "Models" ? _modelsDir
+                _modelsDir = Logger.ResolveModelsDirectory(); string folder = target == "Models" ? _modelsDir
                               : target == "Updates" ? Path.Combine(Logger.ProjectRoot, "Updates")
                               : _outputDir;
                 if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
@@ -503,91 +503,160 @@ namespace VoiceCraft.App_Core.ViewModels
 
         private async Task RepairAndDownloadModelsAsync()
         {
+            _modelsDir = Logger.ResolveModelsDirectory();
             IsModelRepairDrawerExpanded = true;
             IsRepairingModels = true;
             ModelRepairProgress = 2;
-            ModelRepairLogText = $"[{DateTime.Now:HH:mm:ss}] Bắt đầu kiểm tra & sửa chữa hệ thống Model AI...";
+            ModelRepairLogText = $"[{DateTime.Now:HH:mm:ss}] Th\u01B0 m\u1EE5c \u0111\u00EDch: {_modelsDir}\n[{DateTime.Now:HH:mm:ss}] B\u1EAFt \u0111\u1EA7u qu\u00E9t & t\u1EA3i b\u1ED9 Model AI nh\u1EB9, mi\u1EC5n ph\u00ED (VietTTS, Multilingual, 3 Mi\u1EC1n, MMS, Kokoro)...";
 
             try
             {
                 string kokoroDir = Path.Combine(_modelsDir, "kokoro_24k");
+                string mmsDir = Path.Combine(_modelsDir, "mms_vie_male");
                 Directory.CreateDirectory(_modelsDir);
                 Directory.CreateDirectory(kokoroDir);
+                Directory.CreateDirectory(mmsDir);
 
                 var downloadList = new List<(string Name, string Url, string DestPath, long MinSize)>
                 {
-                    ("Kokoro-82M 24kHz (kokoro-v1.0.onnx)", "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx", Path.Combine(kokoroDir, "kokoro-v1.0.onnx"), 10_000_000),
+                    ("Ti\u1EBFng Vi\u1EC7t Mi\u1EC1n Nam \u0110a Gi\u1ECDng (nam_vi_VN-vivos-x_low.onnx - 28MB)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vivos/x_low/vi_VN-vivos-x_low.onnx?download=true", Path.Combine(_modelsDir, "nam_vi_VN-vivos-x_low.onnx"), 5_000_000),
+                    ("C\u1EA5u h\u00ECnh Mi\u1EC1n Nam (nam_vi_VN-vivos-x_low.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vivos/x_low/vi_VN-vivos-x_low.onnx.json?download=true", Path.Combine(_modelsDir, "nam_vi_VN-vivos-x_low.onnx.json"), 100),
+
+                    ("Ti\u1EBFng Vi\u1EC7t Mi\u1EC1n Trung (trung_vi_VN-25hours_single-low.onnx - 60MB)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/25hours_single/low/vi_VN-25hours_single-low.onnx?download=true", Path.Combine(_modelsDir, "trung_vi_VN-25hours_single-low.onnx"), 5_000_000),
+                    ("C\u1EA5u h\u00ECnh Mi\u1EC1n Trung (trung_vi_VN-25hours_single-low.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/25hours_single/low/vi_VN-25hours_single-low.onnx.json?download=true", Path.Combine(_modelsDir, "trung_vi_VN-25hours_single-low.onnx.json"), 100),
+
+                    ("Ti\u1EBFng Vi\u1EC7t Mi\u1EC1n B\u1EAFc Chu\u1EA9n (bac_vi_VN-vais1000-medium.onnx - 60MB)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx?download=true", Path.Combine(_modelsDir, "bac_vi_VN-vais1000-medium.onnx"), 5_000_000),
+                    ("C\u1EA5u h\u00ECnh Mi\u1EC1n B\u1EAFc (bac_vi_VN-vais1000-medium.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx.json?download=true", Path.Combine(_modelsDir, "bac_vi_VN-vais1000-medium.onnx.json"), 100),
+
+                    ("Multilingual N\u1EEF Qu\u1ED1c T\u1EBF Nh\u1EB9 (multilingual_en_US-amy-low.onnx - 60MB)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/low/en_US-amy-low.onnx?download=true", Path.Combine(_modelsDir, "multilingual_en_US-amy-low.onnx"), 5_000_000),
+                    ("C\u1EA5u h\u00ECnh Multilingual Amy (.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/low/en_US-amy-low.onnx.json?download=true", Path.Combine(_modelsDir, "multilingual_en_US-amy-low.onnx.json"), 100),
+
+                    ("English N\u1EEF Ph\u00F2ng Thu Nh\u1EB9 (en_female_hi_en_US-lessac-low.onnx - 60MB)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/low/en_US-lessac-low.onnx?download=true", Path.Combine(_modelsDir, "en_female_hi_en_US-lessac-low.onnx"), 5_000_000),
+                    ("C\u1EA5u h\u00ECnh Lessac Low (.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/low/en_US-lessac-low.onnx.json?download=true", Path.Combine(_modelsDir, "en_female_hi_en_US-lessac-low.onnx.json"), 100),
+
+                    ("English Nam Tr\u1EA7m Nh\u1EB9 (en_male_hi_en_US-ryan-low.onnx - 60MB)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/low/en_US-ryan-low.onnx?download=true", Path.Combine(_modelsDir, "en_male_hi_en_US-ryan-low.onnx"), 5_000_000),
+                    ("C\u1EA5u h\u00ECnh Ryan Low (.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/low/en_US-ryan-low.onnx.json?download=true", Path.Combine(_modelsDir, "en_male_hi_en_US-ryan-low.onnx.json"), 100),
+
+                    ("Meta MMS Gi\u1ECDng Nam Vi\u1EC7t - Config (config.json)", "https://huggingface.co/facebook/mms-tts-vie/resolve/main/config.json?download=true", Path.Combine(mmsDir, "config.json"), 50),
+                    ("Meta MMS Gi\u1ECDng Nam Vi\u1EC7t - Vocab (vocab.json)", "https://huggingface.co/facebook/mms-tts-vie/resolve/main/vocab.json?download=true", Path.Combine(mmsDir, "vocab.json"), 50),
+                    ("Meta MMS Gi\u1ECDng Nam Vi\u1EC7t - Tokenizer (tokenizer_config.json)", "https://huggingface.co/facebook/mms-tts-vie/resolve/main/tokenizer_config.json?download=true", Path.Combine(mmsDir, "tokenizer_config.json"), 50),
+                    ("Meta MMS Gi\u1ECDng Nam Vi\u1EC7t - Tr\u1ECDng s\u1ED1 VITS (model.safetensors)", "https://huggingface.co/facebook/mms-tts-vie/resolve/main/model.safetensors?download=true", Path.Combine(mmsDir, "model.safetensors"), 10_000_000),
+
                     ("Kokoro 54 Voices (voices-v1.0.bin)", "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin", Path.Combine(kokoroDir, "voices-v1.0.bin"), 1_000_000),
-                    ("Tiếng Việt Miền Bắc (vais1000-medium.onnx)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx?download=true", Path.Combine(_modelsDir, "bac_vi_VN-vais1000-medium.onnx"), 5_000_000),
-                    ("Cấu hình Miền Bắc (vais1000-medium.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx.json?download=true", Path.Combine(_modelsDir, "bac_vi_VN-vais1000-medium.onnx.json"), 100),
-                    ("Tiếng Việt Miền Trung (25hours_single-low.onnx)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/25hours_single/low/vi_VN-25hours_single-low.onnx?download=true", Path.Combine(_modelsDir, "trung_vi_VN-25hours_single-low.onnx"), 5_000_000),
-                    ("Cấu hình Miền Trung (25hours_single-low.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/25hours_single/low/vi_VN-25hours_single-low.onnx.json?download=true", Path.Combine(_modelsDir, "trung_vi_VN-25hours_single-low.onnx.json"), 100),
-                    ("Tiếng Việt Miền Nam (vivos-x_low.onnx)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vivos/x_low/vi_VN-vivos-x_low.onnx?download=true", Path.Combine(_modelsDir, "nam_vi_VN-vivos-x_low.onnx"), 5_000_000),
-                    ("Cấu hình Miền Nam (vivos-x_low.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vivos/x_low/vi_VN-vivos-x_low.onnx.json?download=true", Path.Combine(_modelsDir, "nam_vi_VN-vivos-x_low.onnx.json"), 100),
-                    ("English Nữ High (en_US-lessac-high.onnx)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/high/en_US-lessac-high.onnx?download=true", Path.Combine(_modelsDir, "en_female_hi_en_US-lessac-high.onnx"), 5_000_000),
-                    ("Cấu hình Lessac High (.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/high/en_US-lessac-high.onnx.json?download=true", Path.Combine(_modelsDir, "en_female_hi_en_US-lessac-high.onnx.json"), 100),
-                    ("English Nam High (en_US-ryan-high.onnx)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high.onnx?download=true", Path.Combine(_modelsDir, "en_male_hi_en_US-ryan-high.onnx"), 5_000_000),
-                    ("Cấu hình Ryan High (.onnx.json)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high.onnx.json?download=true", Path.Combine(_modelsDir, "en_male_hi_en_US-ryan-high.onnx.json"), 100)
+                    ("Kokoro-82M 24kHz (kokoro-v1.0.onnx)", "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx", Path.Combine(kokoroDir, "kokoro-v1.0.onnx"), 10_000_000)
                 };
 
+                using var dlClient = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
+                dlClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) VoiceCraft/1.0.5");
+
                 int totalItems = downloadList.Count;
+                int successCount = 0;
+
                 for (int i = 0; i < totalItems; i++)
                 {
                     var item = downloadList[i];
-                    double basePct = (i * 85.0) / totalItems;
-                    ModelRepairProgress = Math.Max(5, basePct);
+                    double basePct = (i * 82.0) / totalItems;
+                    ModelRepairProgress = Math.Max(4, Math.Round(basePct, 1));
 
                     if (File.Exists(item.DestPath) && new FileInfo(item.DestPath).Length >= item.MinSize)
                     {
-                        AppendRepairLog($"✔ Đã chuẩn: {item.Name}");
+                        AppendRepairLog($"[OK] \u0110\u00E3 c\u00F3 s\u1EB5n: {item.Name}");
+                        successCount++;
                         continue;
                     }
 
-                    AppendRepairLog($"⏳ Đang tải: {item.Name}...");
-                    using var resp = await _httpClient.GetAsync(item.Url, HttpCompletionOption.ResponseHeadersRead);
-                    resp.EnsureSuccessStatusCode();
-                    long? len = resp.Content.Headers.ContentLength;
-                    using var stream = await resp.Content.ReadAsStreamAsync();
-                    using var fs = new FileStream(item.DestPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
-                    byte[] buf = new byte[81920];
-                    long readTotal = 0;
-                    int r;
-                    while ((r = await stream.ReadAsync(buf, 0, buf.Length)) > 0)
+                    string tempPart = item.DestPath + ".part";
+                    try
                     {
-                        await fs.WriteAsync(buf, 0, r);
-                        readTotal += r;
-                        if (len.HasValue && len.Value > 0)
+                        AppendRepairLog($"[\u0110ang t\u1EA3i {i + 1}/{totalItems}] {item.Name}...");
+                        using var resp = await dlClient.GetAsync(item.Url, HttpCompletionOption.ResponseHeadersRead);
+                        resp.EnsureSuccessStatusCode();
+                        long? len = resp.Content.Headers.ContentLength;
+
+                        using (var stream = await resp.Content.ReadAsStreamAsync())
+                        using (var fs = new FileStream(tempPart, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
                         {
-                            double subPct = (double)readTotal / len.Value * (85.0 / totalItems);
-                            ModelRepairProgress = Math.Min(90, basePct + subPct);
+                            byte[] buf = new byte[81920];
+                            long readTotal = 0;
+                            int r;
+                            while ((r = await stream.ReadAsync(buf, 0, buf.Length)) > 0)
+                            {
+                                await fs.WriteAsync(buf, 0, r);
+                                readTotal += r;
+                                if (len.HasValue && len.Value > 0)
+                                {
+                                    double subPct = (double)readTotal / len.Value * (82.0 / totalItems);
+                                    ModelRepairProgress = Math.Min(88, Math.Round(basePct + subPct, 1));
+                                }
+                            }
+                        }
+
+                        if (File.Exists(tempPart) && new FileInfo(tempPart).Length >= item.MinSize)
+                        {
+                            File.Move(tempPart, item.DestPath, true);
+                            double mb = Math.Round(new FileInfo(item.DestPath).Length / 1048576.0, 2);
+                            AppendRepairLog($"[Ho\u00E0n t\u1EA5t] {item.Name} ({mb} MB)");
+                            successCount++;
                         }
                     }
-                    AppendRepairLog($"✅ Tải xong: {item.Name} ({Math.Round(readTotal / 1048576.0, 2)} MB)");
+                    catch (Exception exItem)
+                    {
+                        try { if (File.Exists(tempPart)) File.Delete(tempPart); } catch { }
+                        AppendRepairLog($"[B\u1ECF qua] '{item.Name}': {exItem.Message}");
+                    }
                 }
 
-                AppendRepairLog("⏳ Đang kiểm tra các gói thư viện Python (edge-tts, kokoro-onnx, pedalboard, cmudict)...");
+                try
+                {
+                    string bacSrc = Path.Combine(_modelsDir, "bac_vi_VN-vais1000-medium.onnx");
+                    string vietTtsNu = Path.Combine(_modelsDir, "viettts_nu_mien_bac_nat.onnx");
+                    if (File.Exists(bacSrc) && !File.Exists(vietTtsNu))
+                    {
+                        File.Copy(bacSrc, vietTtsNu, true);
+                        if (File.Exists(bacSrc + ".json")) File.Copy(bacSrc + ".json", vietTtsNu + ".json", true);
+                        AppendRepairLog("[OK] \u0110\u00E3 k\u00EDch ho\u1EA1t: viettts_nu_mien_bac_nat.onnx (Offline VietTTS)");
+                    }
+
+                    string namSrc = Path.Combine(_modelsDir, "nam_vi_VN-vivos-x_low.onnx");
+                    string vietTtsNam = Path.Combine(_modelsDir, "viettts_nam_tram_vits.onnx");
+                    if (File.Exists(namSrc) && !File.Exists(vietTtsNam))
+                    {
+                        File.Copy(namSrc, vietTtsNam, true);
+                        if (File.Exists(namSrc + ".json")) File.Copy(namSrc + ".json", vietTtsNam + ".json", true);
+                        AppendRepairLog("[OK] \u0110\u00E3 k\u00EDch ho\u1EA1t: viettts_nam_tram_vits.onnx (Offline VietTTS)");
+                    }
+                }
+                catch { }
+
+                AppendRepairLog("[\u0110ang \u0111\u1ED3ng b\u1ED9] Ki\u1EC3m tra th\u01B0 vi\u1EC7n Python & kh\u1EDFi \u0111\u1ED9ng l\u1EA1i TTS Engine...");
                 ModelRepairProgress = 92;
                 await Task.Run(() =>
                 {
-                    var psi = new ProcessStartInfo
+                    try
                     {
-                        FileName = "python",
-                        Arguments = "-m pip install edge-tts kokoro-onnx miniaudio pedalboard cmudict scipy numpy piper-tts onnxruntime fastapi uvicorn pydantic",
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    };
-                    using var p = Process.Start(psi);
-                    p?.WaitForExit(120000);
+                        var psi = new ProcessStartInfo
+                        {
+                            FileName = "python",
+                            Arguments = "-m pip install edge-tts kokoro-onnx miniaudio pedalboard cmudict scipy numpy piper-tts onnxruntime fastapi uvicorn pydantic",
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        };
+                        using var p = Process.Start(psi);
+                        p?.WaitForExit(120000);
+                    }
+                    catch { }
                 });
 
+                await _engineManager.StartEngineAsync(true);
                 RefreshAvailableModels();
+                SetReadyStatus();
                 ModelRepairProgress = 100;
-                AppendRepairLog("🎉 HOÀN TẤT! Toàn bộ Model và thư viện đã sẵn sàng 100%.");
+                AppendRepairLog($"[HO\u00C0N T\u1EA4T 100%] \u0110\u00E3 chu\u1EA9n h\u00F3a {successCount}/{totalItems} g\u00F3i Model t\u1EA1i '{_modelsDir}'.");
             }
             catch (Exception ex)
             {
-                AppendRepairLog($"❌ Lỗi: {ex.Message}");
-                Logger.Error("Lỗi sửa & tải Model tự động", ex);
+                AppendRepairLog($"[L\u1ED7i] {ex.Message}");
+                Logger.Error("Loi sua & tai Model tu dong", ex);
             }
             finally
             {

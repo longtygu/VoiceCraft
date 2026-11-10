@@ -13,57 +13,44 @@ namespace VoiceCraft.App_Core.Services
         {
             ProjectRoot = ResolveProjectRoot();
             string logDir = Path.Combine(ProjectRoot, "Logs");
-            if (!Directory.Exists(logDir)) Directory.CreateDirectory(logDir);
+            try { if (!Directory.Exists(logDir)) Directory.CreateDirectory(logDir); } catch { }
             LogFilePath = Path.Combine(logDir, $"VoiceCraft_{DateTime.Now:yyyyMMdd}.log");
         }
 
         private static string ResolveProjectRoot()
         {
-            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-            // 1. Kiểm tra nếu thư mục chứa cả Models (.onnx) và Engine\main.py (Ưu tiên thư mục gốc dự án khi chạy từ bin\Debug hoặc bin\Release\publish)
-            DirectoryInfo dir = new DirectoryInfo(baseDir);
-            for (int i = 0; i < 6 && dir != null; i++)
+            // Neu dang chay trong Visual Studio (bin\Debug hoac bin\Release nhung KHONG phai thu muc publish)
+            if (!baseDir.EndsWith(@"\publish", StringComparison.OrdinalIgnoreCase) &&
+                (baseDir.Contains(@"\bin\Debug", StringComparison.OrdinalIgnoreCase) ||
+                 baseDir.Contains(@"\bin\Release", StringComparison.OrdinalIgnoreCase)))
             {
-                string enginePy = Path.Combine(dir.FullName, "Engine", "main.py");
-                string modelsPath = Path.Combine(dir.FullName, "Models");
-                if (File.Exists(enginePy) && Directory.Exists(modelsPath))
+                DirectoryInfo dir = new DirectoryInfo(baseDir);
+                for (int i = 0; i < 6 && dir != null; i++)
                 {
-                    return dir.FullName;
+                    if (File.Exists(Path.Combine(dir.FullName, "VoiceCraft.csproj")) ||
+                        (File.Exists(Path.Combine(dir.FullName, "Engine", "main.py")) && Directory.Exists(Path.Combine(dir.FullName, "Models"))))
+                    {
+                        return dir.FullName;
+                    }
+                    dir = dir.Parent;
                 }
-                dir = dir.Parent;
             }
 
-            // 2. Nếu chạy bản đóng gói độc lập (chỉ có Engine\main.py cạnh file .exe)
-            dir = new DirectoryInfo(baseDir);
-            for (int i = 0; i < 6 && dir != null; i++)
-            {
-                string enginePy = Path.Combine(dir.FullName, "Engine", "main.py");
-                if (File.Exists(enginePy))
-                {
-                    return dir.FullName;
-                }
-                dir = dir.Parent;
-            }
-
-            // 3. Fallback an toàn
-            string devFallback = @"E:\WORK\Microsoft Visual Studio\VoiceCraft";
-            if (Directory.Exists(devFallback)) return devFallback;
-            return baseDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            // Khi chay ban dong goi Release (publish) hoac tren may tinh khac: luon lay thu muc chua VoiceCraft.exe
+            return baseDir;
         }
 
         public static string ResolveModelsDirectory()
         {
             string localModels = Path.Combine(ProjectRoot, "Models");
-            if (Directory.Exists(localModels) && Directory.GetFiles(localModels, "*.onnx").Length > 0)
-                return localModels;
-
-            // Nếu chạy từ thư mục Publish độc lập mà chưa copy Models sang, tự động liên kết kho Models gốc (nếu có trên máy)
-            string devModels = @"E:\WORK\Microsoft Visual Studio\VoiceCraft\Models";
-            if (Directory.Exists(devModels) && Directory.GetFiles(devModels, "*.onnx").Length > 0)
-                return devModels;
-
-            if (!Directory.Exists(localModels)) Directory.CreateDirectory(localModels);
+            try
+            {
+                if (!Directory.Exists(localModels))
+                    Directory.CreateDirectory(localModels);
+            }
+            catch { }
             return localModels;
         }
 

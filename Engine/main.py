@@ -117,7 +117,7 @@ def resolve_directories():
 
     if getattr(sys, 'frozen', False):
         exe_dir = os.path.dirname(sys.executable)
-        root_dir = os.path.abspath(os.path.join(exe_dir, "..", "..", ".."))
+        root_dir = os.path.abspath(os.path.join(exe_dir, "..")) if os.path.basename(exe_dir).lower() == "engine" else exe_dir
     else:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         root_dir = os.path.abspath(os.path.join(script_dir, ".."))
@@ -737,7 +737,10 @@ def synthesize_with_kokoro(text: str, model_label: str, speed: float, pitch: flo
 
 async def synthesize_with_edge_neural_async(text: str, model_label: str, speed: float, pitch: float, bypass_dsp: bool = False, target_sr: int = 22050) -> np.ndarray:
     if not HAS_EDGE_TTS:
-        raise RuntimeError("Thư viện edge-tts chưa được cài đặt.")
+        is_male_fb = ("Nam" in model_label) or ("Andrew" in model_label) or ("Brian" in model_label)
+        fb_path, fb_spk, fb_ratio = pick_piper_model_info("vi", "Song ngữ Việt - Anh (Tự động)", "Nam (Male)" if is_male_fb else "Nữ (Female)")
+        fb_voice = await asyncio.to_thread(load_cached_voice, fb_path)
+        return await asyncio.to_thread(synthesize_piper_segment, fb_voice, text, speed, pitch * fb_ratio, fb_spk, bypass_dsp, 0.667, target_sr)
 
     m = re.search(r"\b([a-z]{2}-[A-Z]{2}-\w+Neural)\b", model_label)
     if m:

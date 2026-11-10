@@ -29,7 +29,7 @@
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0,0,0">
                         <TextBlock Text="⚙️ Cài đặt hệ thống, Sửa lỗi Model &amp; Giao diện VoiceCraft" Foreground="White" FontWeight="SemiBold" FontSize="14.5" VerticalAlignment="Center"/>
                         <Border Background="#20FFFFFF" CornerRadius="3" Padding="10,2" Margin="14,0,0,0" BorderBrush="#28FFFFFF" BorderThickness="1">
-                            <TextBlock Text="{Binding AppVersion, StringFormat={}v{0}, FallbackValue=v1.0.3}" Foreground="#D8ECFF" FontSize="11.5" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding AppVersion, StringFormat={}v{0}, FallbackValue=v1.0.5}" Foreground="#D8ECFF" FontSize="11.5" FontWeight="SemiBold"/>
                         </Border>
                     </StackPanel>
                     <Button Content="✕" Width="48" HorizontalAlignment="Right" Style="{StaticResource Win10CloseBtn}" Click="Close_Click"/>
@@ -124,7 +124,7 @@
                                         <TextBlock Text="Chi tiết từng tiến trình quét &amp; sửa lỗi Model:" Foreground="#B0C8E0" FontSize="11.5" Margin="0,0,0,5"/>
                                         <Border Background="#45040810" CornerRadius="4" Height="130" Padding="10,8" BorderBrush="#28FFFFFF" BorderThickness="1">
                                             <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                                <TextBlock Text="{Binding ModelRepairLogText}" Foreground="#D8ECFF" FontSize="11.5" LineHeight="18" TextWrapping="Wrap" FontFamily="Consolas"/>
+                                                <TextBlock Text="{Binding ModelRepairLogText}" Foreground="#D8ECFF" FontSize="12" LineHeight="19" TextWrapping="Wrap" FontFamily="Segoe UI, Consolas"/>
                                             </ScrollViewer>
                                         </Border>
                                     </StackPanel>
@@ -142,7 +142,7 @@
                                         </Grid.ColumnDefinitions>
                                         <TextBox Grid.Column="0" Text="{Binding GitHubRepo, Mode=OneWay}" IsReadOnly="True" IsReadOnlyCaretVisible="True"
                                                  Height="32" Background="#25060C14" Foreground="#90E0FF" BorderBrush="#4500B4FF" BorderThickness="1"
-                                                 Padding="10,5" FontSize="12" FontFamily="Consolas" VerticalContentAlignment="Center"
+                                                 Padding="10,5" FontSize="12" FontFamily="Segoe UI, Consolas" VerticalContentAlignment="Center"
                                                  ToolTip="Đường dẫn kho lưu trữ chính thức đã được khóa cứng (Chỉ cho phép bôi đen &amp; sao chép)"/>
                                         <Button Grid.Column="1" Content="📋 Sao chép" Command="{Binding CopyGitHubRepoCommand}"
                                                 Style="{StaticResource FlatGlassBtn}" Height="32" Padding="14,4" Margin="8,0,0,0"
@@ -161,7 +161,7 @@
                                     <TextBlock Text="Nội dung bản phát hành (Changelog):" Foreground="#B0C8E0" FontSize="11.5" Margin="0,0,0,4"/>
                                     <Border Background="#40060C14" CornerRadius="4" Height="78" Padding="8,6" BorderBrush="#20FFFFFF" BorderThickness="1">
                                         <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                            <TextBlock Text="{Binding UpdateChangelog}" Foreground="#D8ECFF" FontSize="11.5" TextWrapping="Wrap" FontFamily="Consolas"/>
+                                            <TextBlock Text="{Binding UpdateChangelog}" Foreground="#D8ECFF" FontSize="11.5" TextWrapping="Wrap" FontFamily="Segoe UI, Consolas"/>
                                         </ScrollViewer>
                                     </Border>
                                 </StackPanel>

@@ -24,30 +24,30 @@ namespace VoiceCraft.App_Core.Services
 
     public class UpdateService : IDisposable
     {
-        public const string CurrentAppVersion = "1.0.4";
+        public const string CurrentAppVersion = "1.0.5";
         public const string LockedGitHubRepoUrl = "https://github.com/longtygu/VoiceCraft";
         public const string LockedGitHubRepoSlug = "longtygu/VoiceCraft";
         private readonly HttpClient _httpClient;
 
         public UpdateService()
         {
-            _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
-            _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("VoiceCraft-Updater", CurrentAppVersion));
-            _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+            _httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
+            _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd($"Mozilla/5.0 (Windows NT 10.0; Win64; x64) VoiceCraft-Updater/{CurrentAppVersion}");
         }
 
         public async Task<UpdateInfo> CheckForUpdatesAsync(string ignoredRepoPath = null)
         {
             var result = new UpdateInfo { CurrentVersion = CurrentAppVersion, LatestVersion = CurrentAppVersion };
-            string cleanRepo = LockedGitHubRepoSlug;
-            string apiUrl = $"https://api.github.com/repos/{cleanRepo}/releases/latest";
+            string apiUrl = $"https://api.github.com/repos/{LockedGitHubRepoSlug}/releases/latest";
 
-            Logger.Info($"Kiểm tra cập nhật GitHub (khóa cứng) tại: {apiUrl}");
-            using var response = await _httpClient.GetAsync(apiUrl);
+            Logger.Info($"Kiem tra cap nhat GitHub tai: {apiUrl}");
+            using var req = new HttpRequestMessage(HttpMethod.Get, apiUrl);
+            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
 
+            using var response = await _httpClient.SendAsync(req);
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
-                result.ReleaseNotes = $"Kho lưu trữ '{LockedGitHubRepoUrl}' hiện chưa có bản phát hành (Release) công khai nào.\nPhiên bản hiện tại (v{CurrentAppVersion}) là mới nhất.";
+                result.ReleaseNotes = $"Kho luu tru '{LockedGitHubRepoUrl}' hien chua co ban phat hanh (Release) cong khai nao.\nPhien ban hien tai (v{CurrentAppVersion}) la moi nhat.";
                 return result;
             }
 
@@ -60,7 +60,7 @@ namespace VoiceCraft.App_Core.Services
             string tagName = root.TryGetProperty("tag_name", out var tagProp) ? (tagProp.GetString() ?? CurrentAppVersion) : CurrentAppVersion;
             string latestVerStr = tagName.TrimStart('v', 'V', ' ');
             result.LatestVersion = latestVerStr;
-            result.ReleaseNotes = root.TryGetProperty("body", out var bodyProp) ? (bodyProp.GetString() ?? "Không có mô tả chi tiết.") : "";
+            result.ReleaseNotes = root.TryGetProperty("body", out var bodyProp) ? (bodyProp.GetString() ?? "Khong co mo ta chi tiet.") : "";
             result.HtmlUrl = root.TryGetProperty("html_url", out var htmlProp) ? (htmlProp.GetString() ?? "") : "";
 
             if (root.TryGetProperty("assets", out var assetsProp) && assetsProp.ValueKind == JsonValueKind.Array)
@@ -69,20 +69,13 @@ namespace VoiceCraft.App_Core.Services
                 {
                     string name = asset.TryGetProperty("name", out var nProp) ? (nProp.GetString() ?? "") : "";
                     string dlUrl = asset.TryGetProperty("browser_download_url", out var dProp) ? (dProp.GetString() ?? "") : "";
-                    if (!string.IsNullOrEmpty(dlUrl))
+                    if (!string.IsNullOrEmpty(dlUrl) && name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                     {
                         result.DownloadUrl = dlUrl;
-                        result.AssetFileName = string.IsNullOrEmpty(name) ? $"VoiceCraft_Update_{latestVerStr}.zip" : name;
-                        if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-                            break;
+                        result.AssetFileName = name;
+                        break;
                     }
                 }
-            }
-
-            if (string.IsNullOrEmpty(result.DownloadUrl) && root.TryGetProperty("zipball_url", out var zipProp))
-            {
-                result.DownloadUrl = zipProp.GetString() ?? "";
-                result.AssetFileName = $"VoiceCraft_Update_{latestVerStr}.zip";
             }
 
             result.IsUpdateAvailable = CompareVersions(latestVerStr, CurrentAppVersion) > 0;
@@ -92,7 +85,7 @@ namespace VoiceCraft.App_Core.Services
         public async Task<string> DownloadUpdateAsync(UpdateInfo info, IProgress<double> progress = null)
         {
             if (info == null || string.IsNullOrWhiteSpace(info.DownloadUrl))
-                throw new InvalidOperationException("Không tìm thấy đường dẫn tải gói cập nhật.");
+                throw new InvalidOperationException("Ban phat hanh tren GitHub chua dinh kem file .zip trong muc Assets.");
 
             string tempRoot = Path.Combine(Path.GetTempPath(), "VoiceCraft_SelfUpdate_" + Guid.NewGuid().ToString("N").Substring(0, 8));
             Directory.CreateDirectory(tempRoot);
@@ -102,9 +95,12 @@ namespace VoiceCraft.App_Core.Services
                 : info.AssetFileName;
             string zipPath = Path.Combine(tempRoot, fileName);
 
-            using (var response = await _httpClient.GetAsync(info.DownloadUrl, HttpCompletionOption.ResponseHeadersRead))
+            using (var req = new HttpRequestMessage(HttpMethod.Get, info.DownloadUrl))
             {
+                req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
+                using var response = await _httpClient.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
                 response.EnsureSuccessStatusCode();
+
                 long? totalBytes = response.Content.Headers.ContentLength;
                 using var contentStream = await response.Content.ReadAsStreamAsync();
                 using var fileStream = new FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
@@ -124,9 +120,18 @@ namespace VoiceCraft.App_Core.Services
                         progress?.Report(Math.Clamp(pct, 0, 90));
                     }
                 }
+                await fileStream.FlushAsync();
             }
 
             progress?.Report(95.0);
+
+            // Kiem tra chu ky PKZIP va End of Central Directory truoc khi giai nen
+            using (var archive = ZipFile.OpenRead(zipPath))
+            {
+                if (archive.Entries.Count == 0)
+                    throw new InvalidDataException("Goi cap nhat .zip tren GitHub bi trong.");
+            }
+
             string extractDir = Path.Combine(tempRoot, "extracted");
             Directory.CreateDirectory(extractDir);
             ZipFile.ExtractToDirectory(zipPath, extractDir, true);
@@ -189,7 +194,7 @@ namespace VoiceCraft.App_Core.Services
             }
             catch (Exception ex)
             {
-                Logger.Error("Lỗi mở trang GitHub Releases", ex);
+                Logger.Error("Loi mo trang GitHub Releases", ex);
             }
         }
 
