@@ -3098,7 +3098,7 @@ namespace VoiceCraft.App_Core.ViewModels
         {
             if (TimelineClips.Count == 0)
             {
-                MessageBox.Show("Timeline dang trong! Hay keo tha ban ghi vao Layer truoc khi xuat file.", "VoiceCraft Mini Studio", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("Timeline \u0111ang tr\u1ED1ng! H\u00E3y k\u00E9o th\u1EA3 b\u1EA3n ghi v\u00E0o Layer tr\u01B0\u1EDBc khi xu\u1EA5t file.", "VoiceCraft Mini Studio", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -3108,18 +3108,19 @@ namespace VoiceCraft.App_Core.ViewModels
 
             IsProcessing = true;
             SynthesisProgress = 8;
-            SynthesisStatusText = $"Dang phan tich & dong bo {TimelineClips.Count} thanh phan tren {StudioLayerCount} Layer...";
+            SynthesisStatusText = $"\u0110ang ph\u00E2n t\u00EDch & \u0111\u1ED3ng b\u1ED9 {TimelineClips.Count} th\u00E0nh ph\u1EA7n tr\u00EAn {StudioLayerCount} Layer...";
             try
             {
                 await Task.Delay(180);
                 SynthesisProgress = 45;
-                SynthesisStatusText = "Dang xu ly 5-Band Parametric EQ, Tone & Nhai giong AI...";
+                SynthesisStatusText = "\u0110ang x\u1EED l\u00FD 5-Band Parametric EQ, Tone & Nh\u00E1i gi\u1ECDng AI...";
                 await Task.Delay(220);
                 SynthesisProgress = 82;
-                SynthesisStatusText = "Dang tron song am tong hop (Master Composite Mixdown)...";
+                SynthesisStatusText = "\u0110ang tr\u1ED9n s\u00F3ng \u00E2m t\u1ED5ng h\u1EE3p (Master Composite Mixdown)...";
                 await Task.Delay(160);
-            }
-                await Task.Run(() => ExportMasterCompositeToWavFile_Core());
+
+                ExportMasterCompositeToWavFile_Core();
+
                 SynthesisProgress = 100;
                 SynthesisStatusText = "Ho\u00E0n t\u1EA5t 100%!";
                 await Task.Delay(150);
