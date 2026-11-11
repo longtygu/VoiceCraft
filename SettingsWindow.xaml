@@ -29,7 +29,7 @@
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0,0,0">
                         <TextBlock Text="⚙️ Cài đặt hệ thống, Sửa lỗi Model &amp; Giao diện VoiceCraft" Foreground="White" FontWeight="SemiBold" FontSize="14.5" VerticalAlignment="Center"/>
                         <Border Background="#20FFFFFF" CornerRadius="3" Padding="10,2" Margin="14,0,0,0" BorderBrush="#28FFFFFF" BorderThickness="1">
-                            <TextBlock Text="{Binding AppVersion, StringFormat={}v{0}, FallbackValue=v1.0.5}" Foreground="#D8ECFF" FontSize="11.5" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding AppVersion, StringFormat={}v{0}, FallbackValue=v1.0.6}" Foreground="#D8ECFF" FontSize="11.5" FontWeight="SemiBold"/>
                         </Border>
                     </StackPanel>
                     <Button Content="✕" Width="48" HorizontalAlignment="Right" Style="{StaticResource Win10CloseBtn}" Click="Close_Click"/>
@@ -115,6 +115,74 @@
                                                 ToolTip="Bắt đầu quét kiểm tra và tự động tải/sửa các file Model AI"/>
                                     </Grid>
                                     
+                                                                        <!-- Báº¢NG QUáº¢N LÃ Tá»ªNG MODEL AI: Táº¢I / XOÃ / Äá»”I TÃŠN -->
+                                    <Separator Background="#28FFFFFF" Margin="0,10,0,10"/>
+                                    <Grid Margin="0,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="ðŸ—‚ï¸ QUáº¢N LÃ Tá»ªNG MODEL (Táº¢I / XOÃ / Äá»”I TÃŠN):" Foreground="#80D8FF" FontWeight="Bold" FontSize="11.5" VerticalAlignment="Center"/>
+                                        <Button Grid.Column="1" Content="ðŸ”„ LÃ m má»›i danh sÃ¡ch" Command="{Binding RefreshManagedModelsCommand}" Style="{StaticResource MiniChipBtn}" Height="24" Padding="8,2"/>
+                                    </Grid>
+
+                                    <Border Background="#38040810" CornerRadius="4" Height="185" Padding="6" BorderBrush="#28FFFFFF" BorderThickness="1" Margin="0,0,0,8">
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                            <ItemsControl ItemsSource="{Binding ManagedModels}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border Background="#24102038" BorderBrush="#28FFFFFF" BorderThickness="1" CornerRadius="4" Padding="8,6" Margin="0,0,0,5">
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,0">
+                                                                    <TextBlock Text="{Binding DisplayName}" Foreground="White" FontWeight="SemiBold" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                                                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                                                                        <TextBlock Text="{Binding StatusBadgeText}" Foreground="{Binding StatusBadgeColor}" FontWeight="Bold" FontSize="10.5" Margin="0,0,8,0"/>
+                                                                        <TextBlock Text="{Binding FileAndSizeSummary}" Foreground="#90B4D4" FontSize="10" FontFamily="Consolas" TextTrimming="CharacterEllipsis"/>
+                                                                    </StackPanel>
+                                                                </StackPanel>
+                                                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                                                    <Button Content="{Binding DownloadActionText}"
+                                                                            Command="{Binding DataContext.DownloadSingleModelCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                            CommandParameter="{Binding}"
+                                                                            Style="{StaticResource MiniChipBtn}" Height="24" Padding="8,2" Margin="0,0,4,0" Foreground="#00E676"/>
+                                                                    <Button Content="âœï¸ Äá»•i tÃªn"
+                                                                            Command="{Binding DataContext.BeginRenameModelCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                            CommandParameter="{Binding}"
+                                                                            Style="{StaticResource MiniChipBtn}" Height="24" Padding="8,2" Margin="0,0,4,0" Foreground="#FFF59D"/>
+                                                                    <Button Content="ðŸ—‘ï¸ XoÃ¡"
+                                                                            Command="{Binding DataContext.DeleteSingleModelCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                            CommandParameter="{Binding}"
+                                                                            Style="{StaticResource MiniChipBtn}" Height="24" Padding="8,2" Foreground="#FF8A80"/>
+                                                                </StackPanel>
+                                                            </Grid>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </ScrollViewer>
+                                    </Border>
+
+                                    <!-- THANH Äá»”I TÃŠN MODEL ÄANG CHá»ŒN -->
+                                    <Border Background="#20081628" BorderBrush="#4400E5FF" BorderThickness="1" CornerRadius="4" Padding="8,6">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="âœï¸ TÃªn má»›i:" Foreground="#B8E8FF" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <TextBox Grid.Column="1" Text="{Binding RenameModelInputText, UpdateSourceTrigger=PropertyChanged}"
+                                                     Height="26" Background="#35040810" Foreground="White" BorderBrush="#4500B4FF" BorderThickness="1"
+                                                     Padding="6,3" FontSize="11.5" VerticalContentAlignment="Center"
+                                                     ToolTip="Nháº­p tÃªn má»›i cho Model Ä‘ang chá»n rá»“i nháº¥n LÆ°u tÃªn"/>
+                                            <Button Grid.Column="2" Content="ðŸ’¾ LÆ°u tÃªn" Command="{Binding ApplyRenameModelCommand}"
+                                                    Style="{StaticResource FlatPrimaryBtn}" Height="26" Padding="10,2" Margin="8,0,0,0" FontSize="11.5"/>
+                                        </Grid>
+                                    </Border>
                                     <StackPanel Visibility="{Binding ModelRepairDrawerVisibility, FallbackValue=Collapsed}" Margin="0,12,0,0">
                                         <Separator Background="#28FFFFFF" Margin="0,0,0,10"/>
                                         <Grid Margin="0,0,0,8">
@@ -173,3 +241,4 @@
         </Grid>
     </Border>
 </Window>
+<!-- Synchronized for Release VoiceCraft v1.0.6 -->

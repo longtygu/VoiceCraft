@@ -1,4 +1,5 @@
-﻿using System;
+﻿// Synchronized for Release VoiceCraft v1.0.6
+using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.ComponentModel;

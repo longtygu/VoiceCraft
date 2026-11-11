@@ -139,4 +139,75 @@ namespace VoiceCraft.App_Core.Models
         protected void OnPropertyChanged([CallerMemberName] string name = null) =>
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
+
+    public class ManagedModelItem : INotifyPropertyChanged
+    {
+        public string CanonicalId { get; set; } = "";
+        public string DownloadUrl { get; set; } = "";
+        public string JsonConfigUrl { get; set; } = "";
+        public long MinSizeBytes { get; set; } = 5_000_000;
+        public bool IsFolderPackage { get; set; } = false;
+
+        private string _fileName = "";
+        public string FileName
+        {
+            get => _fileName;
+            set { _fileName = value; OnPropertyChanged(); OnPropertyChanged(nameof(FileAndSizeSummary)); }
+        }
+
+        private string _displayName = "";
+        public string DisplayName
+        {
+            get => _displayName;
+            set { _displayName = value; OnPropertyChanged(); }
+        }
+
+        private bool _isInstalled;
+        public bool IsInstalled
+        {
+            get => _isInstalled;
+            set
+            {
+                _isInstalled = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(StatusBadgeText));
+                OnPropertyChanged(nameof(StatusBadgeColor));
+                OnPropertyChanged(nameof(DownloadActionText));
+                OnPropertyChanged(nameof(FileAndSizeSummary));
+            }
+        }
+
+        private double _sizeMb;
+        public double SizeMb
+        {
+            get => _sizeMb;
+            set { _sizeMb = value; OnPropertyChanged(); OnPropertyChanged(nameof(FileAndSizeSummary)); }
+        }
+
+        private bool _isBusy;
+        public bool IsBusy
+        {
+            get => _isBusy;
+            set { _isBusy = value; OnPropertyChanged(); OnPropertyChanged(nameof(DownloadActionText)); }
+        }
+
+        private string _busyStatusText = "";
+        public string BusyStatusText
+        {
+            get => _busyStatusText;
+            set { _busyStatusText = value; OnPropertyChanged(); OnPropertyChanged(nameof(StatusBadgeText)); }
+        }
+
+        public string StatusBadgeText => IsBusy
+            ? (string.IsNullOrEmpty(BusyStatusText) ? "Dang xu ly..." : BusyStatusText)
+            : (IsInstalled ? $"\u2714 \u0110\u00E3 t\u1EA3i ({SizeMb:0.0} MB)" : "\u2601 Ch\u01B0a t\u1EA3i");
+
+        public string StatusBadgeColor => IsBusy ? "#00E5FF" : (IsInstalled ? "#00E676" : "#FFB300");
+        public string DownloadActionText => IsBusy ? "..." : (IsInstalled ? "\u21BB T\u1EA3i l\u1EA1i" : "\u2B07 T\u1EA3i v\u1EC1");
+        public string FileAndSizeSummary => $"File: {FileName}" + (IsInstalled ? $" ({SizeMb:0.0} MB)" : "");
+
+        public event PropertyChangedEventHandler PropertyChanged;
+        protected void OnPropertyChanged([CallerMemberName] string name = null) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
 }

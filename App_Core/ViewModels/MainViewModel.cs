@@ -113,7 +113,7 @@ namespace VoiceCraft.App_Core.ViewModels
 
             Logger.Info($"Ứng dụng VoiceCraft v{AppVersion} khởi động.");
 
-            SynthesizeCommand = new RelayCommand(async (o) => await SynthesizeAsync(), (o) => !IsProcessing && !string.IsNullOrWhiteSpace(InputText));
+            SynthesizeCommand = new RelayCommand(async (o) => await SynthesizeAsync(), (o) => !IsProcessing && !IsModelError && !string.IsNullOrWhiteSpace(InputText));
             PlayCommand = new RelayCommand((o) => { StopHeadlessDemo(); _audioPlayer.Play(); _timer.Start(); }, (o) => !IsProcessing && !string.IsNullOrEmpty(_currentAudioPath));
             PauseCommand = new RelayCommand((o) => { StopHeadlessDemo(); _audioPlayer.Pause(); _timer.Stop(); }, (o) => !IsProcessing && !string.IsNullOrEmpty(_currentAudioPath));
             StopCommand = new RelayCommand((o) => { StopHeadlessDemo(); _audioPlayer.Stop(); _timer.Stop(); CurrentPosition = 0; UpdateTimeDisplay(); }, (o) => !IsProcessing && !string.IsNullOrEmpty(_currentAudioPath));
@@ -1247,6 +1247,513 @@ namespace VoiceCraft.App_Core.ViewModels
 
         private string _statusTextForeground = "#E8FFF0";
         public string StatusTextForeground { get => _statusTextForeground; set { _statusTextForeground = value; OnPropertyChanged(); } }
+
+        // =====================================================================
+        // v1.0.6: QUáº¢N LÃ Tá»ªNG MODEL AI (Táº¢I / XOÃ / Äá»”I TÃŠN) & KIá»‚M TRA TRáº NG THÃI THá»°C
+        // =====================================================================
+        private DispatcherTimer _engineHealthTimer;
+        private bool _isCheckingEngineHealth = false;
+        private Dictionary<string, string> _customModelNamesMap;
+
+        public ObservableCollection<ManagedModelItem> ManagedModels { get; } = new ObservableCollection<ManagedModelItem>();
+
+        private ManagedModelItem _selectedManagedModel;
+        public ManagedModelItem SelectedManagedModel
+        {
+            get => _selectedManagedModel;
+            set
+            {
+                _selectedManagedModel = value;
+                OnPropertyChanged();
+                if (value != null)
+                {
+                    RenameModelInputText = value.DisplayName;
+                }
+            }
+        }
+
+        private string _renameModelInputText = "";
+        public string RenameModelInputText
+        {
+            get => _renameModelInputText;
+            set { _renameModelInputText = value; OnPropertyChanged(); }
+        }
+
+        private string GetCustomModelMapPath() => Path.Combine(Logger.ResolveModelsDirectory(), "models_custom_map.json");
+
+        private Dictionary<string, string> GetCustomModelNamesMap()
+        {
+            if (_customModelNamesMap != null) return _customModelNamesMap;
+            _customModelNamesMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                string p = GetCustomModelMapPath();
+                if (File.Exists(p))
+                {
+                    var loaded = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(p));
+                    if (loaded != null)
+                    {
+                        foreach (var kv in loaded) _customModelNamesMap[kv.Key] = kv.Value;
+                    }
+                }
+            }
+            catch { }
+            return _customModelNamesMap;
+        }
+
+        private void SaveCustomModelNamesMap()
+        {
+            try
+            {
+                string p = GetCustomModelMapPath();
+                File.WriteAllText(p, JsonSerializer.Serialize(GetCustomModelNamesMap(), new JsonSerializerOptions { WriteIndented = true }));
+            }
+            catch { }
+        }
+
+        public void EnsureModelManagerInitialized()
+        {
+            if (_engineHealthTimer == null)
+            {
+                _engineHealthTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
+                _engineHealthTimer.Tick += async (s, e) => await VerifyModelAndEngineReadinessAsync();
+                _engineHealthTimer.Start();
+            }
+            if (ManagedModels.Count == 0)
+            {
+                RebuildManagedModelsList();
+            }
+        }
+
+        public void RebuildManagedModelsList()
+        {
+            _modelsDir = Logger.ResolveModelsDirectory();
+            Directory.CreateDirectory(_modelsDir);
+            var nameMap = GetCustomModelNamesMap();
+
+            var catalog = new List<(string Id, string DefaultTitle, string Url, string JsonUrl, long MinBytes, bool IsFolder)>
+            {
+                ("nam_vi_VN-vivos-x_low.onnx", "Ti\u1EBFng Vi\u1EC7t Mi\u1EC1n Nam \u0110a Gi\u1ECDng (VIVOS x_low)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vivos/x_low/vi_VN-vivos-x_low.onnx?download=true", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vivos/x_low/vi_VN-vivos-x_low.onnx.json?download=true", 5_000_000, false),
+                ("trung_vi_VN-25hours_single-low.onnx", "Ti\u1EBFng Vi\u1EC7t Mi\u1EC1n Trung (25Hours low)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/25hours_single/low/vi_VN-25hours_single-low.onnx?download=true", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/25hours_single/low/vi_VN-25hours_single-low.onnx.json?download=true", 5_000_000, false),
+                ("bac_vi_VN-vais1000-medium.onnx", "Ti\u1EBFng Vi\u1EC7t Mi\u1EC1n B\u1EAFc Chu\u1EA9n (VAIS1000 medium)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx?download=true", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx.json?download=true", 5_000_000, false),
+                ("viettts_nu_mien_bac_nat.onnx", "VietTTS Gi\u1ECDng N\u1EEF Mi\u1EC1n B\u1EAFc (Offline NAT)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx?download=true", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx.json?download=true", 5_000_000, false),
+                ("viettts_nam_tram_vits.onnx", "VietTTS Gi\u1ECDng Nam Tr\u1EA7m (Offline VITS)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vivos/x_low/vi_VN-vivos-x_low.onnx?download=true", "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vivos/x_low/vi_VN-vivos-x_low.onnx.json?download=true", 5_000_000, false),
+                ("multilingual_en_US-amy-low.onnx", "Multilingual N\u1EEF Qu\u1ED1c T\u1EBF Nh\u1EB9 (Amy Low)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/low/en_US-amy-low.onnx?download=true", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/low/en_US-amy-low.onnx.json?download=true", 5_000_000, false),
+                ("en_female_hi_en_US-lessac-low.onnx", "English N\u1EEF Ph\u00F2ng Thu Nh\u1EB9 (Lessac Low)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/low/en_US-lessac-low.onnx?download=true", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/low/en_US-lessac-low.onnx.json?download=true", 5_000_000, false),
+                ("en_male_hi_en_US-ryan-low.onnx", "English Nam Tr\u1EA7m Nh\u1EB9 (Ryan Low)", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/low/en_US-ryan-low.onnx?download=true", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/low/en_US-ryan-low.onnx.json?download=true", 5_000_000, false),
+                ("mms_vie_male", "Meta AI MMS Gi\u1ECDng Nam Ti\u1EBFng Vi\u1EC7t (PyTorch VITS)", "https://huggingface.co/facebook/mms-tts-vie/resolve/main/model.safetensors?download=true", "https://huggingface.co/facebook/mms-tts-vie/resolve/main/config.json?download=true", 10_000_000, true),
+                ("kokoro_24k", "Kokoro-82M 24kHz PhÃ²ng Thu (54 Voices)", "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx", "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin", 10_000_000, true)
+            };
+
+            ManagedModels.Clear();
+            var trackedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var entry in catalog)
+            {
+                string currentFile = nameMap.TryGetValue("FILE_" + entry.Id, out var mappedFile) && !string.IsNullOrWhiteSpace(mappedFile)
+                    ? mappedFile
+                    : entry.Id;
+
+                string customTitle = nameMap.TryGetValue("TITLE_" + entry.Id, out var mappedTitle) && !string.IsNullOrWhiteSpace(mappedTitle)
+                    ? mappedTitle
+                    : entry.DefaultTitle;
+
+                bool installed = false;
+                double mb = 0.0;
+
+                if (entry.IsFolder)
+                {
+                    string subDir = Path.Combine(_modelsDir, entry.Id);
+                    if (entry.Id == "kokoro_24k")
+                    {
+                        string kOnnx = Path.Combine(subDir, "kokoro-v1.0.onnx");
+                        string kBin = Path.Combine(subDir, "voices-v1.0.bin");
+                        if (File.Exists(kOnnx) && File.Exists(kBin) && new FileInfo(kOnnx).Length >= entry.MinBytes)
+                        {
+                            installed = true;
+                            mb = Math.Round((new FileInfo(kOnnx).Length + new FileInfo(kBin).Length) / 1048576.0, 1);
+                        }
+                    }
+                    else if (entry.Id == "mms_vie_male")
+                    {
+                        string mSafetensors = Path.Combine(subDir, "model.safetensors");
+                        string mCfg = Path.Combine(subDir, "config.json");
+                        if (File.Exists(mSafetensors) && File.Exists(mCfg) && new FileInfo(mSafetensors).Length >= entry.MinBytes)
+                        {
+                            installed = true;
+                            mb = Math.Round(new FileInfo(mSafetensors).Length / 1048576.0, 1);
+                        }
+                    }
+                }
+                else
+                {
+                    string fPath = Path.Combine(_modelsDir, currentFile);
+                    if (!File.Exists(fPath) && File.Exists(Path.Combine(_modelsDir, entry.Id)))
+                    {
+                        currentFile = entry.Id;
+                        fPath = Path.Combine(_modelsDir, entry.Id);
+                    }
+                    if (File.Exists(fPath) && new FileInfo(fPath).Length >= entry.MinBytes)
+                    {
+                        installed = true;
+                        mb = Math.Round(new FileInfo(fPath).Length / 1048576.0, 1);
+                    }
+                    trackedFiles.Add(currentFile);
+                    trackedFiles.Add(entry.Id);
+                }
+
+                ManagedModels.Add(new ManagedModelItem
+                {
+                    CanonicalId = entry.Id,
+                    FileName = currentFile,
+                    DisplayName = customTitle,
+                    DownloadUrl = entry.Url,
+                    JsonConfigUrl = entry.JsonUrl,
+                    MinSizeBytes = entry.MinBytes,
+                    IsFolderPackage = entry.IsFolder,
+                    IsInstalled = installed,
+                    SizeMb = mb
+                });
+            }
+
+            // QuÃ©t thÃªm cÃ¡c file .onnx tuá»³ chá»‰nh khÃ¡c mÃ  ngÆ°á»i dÃ¹ng tá»± chÃ©p vÃ o thÆ° má»¥c Models
+            if (Directory.Exists(_modelsDir))
+            {
+                foreach (var f in Directory.GetFiles(_modelsDir, "*.onnx"))
+                {
+                    string fn = Path.GetFileName(f);
+                    if (trackedFiles.Contains(fn)) continue;
+                    var fi = new FileInfo(f);
+                    if (fi.Length < 1_000_000) continue;
+
+                    string customTitle = nameMap.TryGetValue("TITLE_" + fn, out var t) ? t : Path.GetFileNameWithoutExtension(fn);
+                    ManagedModels.Add(new ManagedModelItem
+                    {
+                        CanonicalId = fn,
+                        FileName = fn,
+                        DisplayName = customTitle,
+                        DownloadUrl = "",
+                        JsonConfigUrl = "",
+                        MinSizeBytes = 1_000_000,
+                        IsFolderPackage = false,
+                        IsInstalled = true,
+                        SizeMb = Math.Round(fi.Length / 1048576.0, 1)
+                    });
+                }
+            }
+
+            if (SelectedManagedModel == null && ManagedModels.Count > 0)
+            {
+                SelectedManagedModel = ManagedModels[0];
+            }
+        }
+
+        public ICommand RefreshManagedModelsCommand => new RelayCommand((o) =>
+        {
+            RebuildManagedModelsList();
+            RefreshAvailableModels();
+            _ = VerifyModelAndEngineReadinessAsync();
+        });
+
+        public ICommand BeginRenameModelCommand => new RelayCommand((param) =>
+        {
+            if (param is ManagedModelItem item)
+            {
+                SelectedManagedModel = item;
+                RenameModelInputText = item.DisplayName;
+                ModelRepairLogText = $"[\u0110\u1ED5i t\u00EAn] \u0110ang ch\u1ECDn '{item.DisplayName}'. H\u00E3y nh\u1EADp t\u00EAn m\u1EDBi v\u00E0o \u00F4 b\u00EAn d\u01B0\u1EDBi r\u1ED3i nh\u1EA5n 'L\u01B0u t\u00EAn'.";
+            }
+        });
+
+        public ICommand ApplyRenameModelCommand => new RelayCommand((o) =>
+        {
+            var item = SelectedManagedModel;
+            if (item == null || string.IsNullOrWhiteSpace(RenameModelInputText)) return;
+
+            string newName = RenameModelInputText.Trim();
+            var nameMap = GetCustomModelNamesMap();
+            nameMap["TITLE_" + item.CanonicalId] = newName;
+            item.DisplayName = newName;
+
+            // Náº¿u lÃ  model .onnx Ä‘Æ¡n láº» Ä‘Ã£ táº£i trÃªn Ä‘Ä©a, há»— trá»£ Ä‘á»•i tÃªn luÃ´n file .onnx vÃ  .onnx.json
+            if (!item.IsFolderPackage && item.IsInstalled)
+            {
+                string safeBase = string.Join("_", newName.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries)).Trim();
+                if (!string.IsNullOrWhiteSpace(safeBase))
+                {
+                    if (!safeBase.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase))
+                        safeBase += ".onnx";
+
+                    string oldOnnx = Path.Combine(_modelsDir, item.FileName);
+                    string oldJson = oldOnnx + ".json";
+                    string newOnnx = Path.Combine(_modelsDir, safeBase);
+                    string newJson = newOnnx + ".json";
+
+                    if (File.Exists(oldOnnx) && !string.Equals(oldOnnx, newOnnx, StringComparison.OrdinalIgnoreCase))
+                    {
+                        try
+                        {
+                            File.Move(oldOnnx, newOnnx, true);
+                            if (File.Exists(oldJson)) File.Move(oldJson, newJson, true);
+                            item.FileName = safeBase;
+                            nameMap["FILE_" + item.CanonicalId] = safeBase;
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Error("Loi doi ten file model tren dia", ex);
+                        }
+                    }
+                }
+            }
+
+            SaveCustomModelNamesMap();
+            RefreshAvailableModels();
+            _ = VerifyModelAndEngineReadinessAsync();
+            AppendRepairLog($"[\u0110\u00E3 \u0111\u1ED5i t\u00EAn] Model '{item.CanonicalId}' -> '{item.DisplayName}' ({item.FileName})");
+        });
+
+        public ICommand DownloadSingleModelCommand => new RelayCommand(async (param) =>
+        {
+            if (param is not ManagedModelItem item || item.IsBusy) return;
+            if (string.IsNullOrWhiteSpace(item.DownloadUrl))
+            {
+                MessageBox.Show("Model tu\u1EF3 ch\u1EC9nh n\u00E0y \u0111\u00E3 c\u00F3 s\u1EB5n tr\u00EAn m\u00E1y.", "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            item.IsBusy = true;
+            item.BusyStatusText = "\u23F3 0%";
+            IsModelRepairDrawerExpanded = true;
+
+            try
+            {
+                _modelsDir = Logger.ResolveModelsDirectory();
+                Directory.CreateDirectory(_modelsDir);
+
+                using var dlClient = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
+                dlClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) VoiceCraft/1.0.6");
+
+                var filesToFetch = new List<(string Url, string DestPath, long MinBytes)>();
+                if (item.IsFolderPackage)
+                {
+                    string subDir = Path.Combine(_modelsDir, item.CanonicalId);
+                    Directory.CreateDirectory(subDir);
+                    if (item.CanonicalId == "kokoro_24k")
+                    {
+                        filesToFetch.Add((item.JsonConfigUrl, Path.Combine(subDir, "voices-v1.0.bin"), 1_000_000));
+                        filesToFetch.Add((item.DownloadUrl, Path.Combine(subDir, "kokoro-v1.0.onnx"), 10_000_000));
+                    }
+                    else if (item.CanonicalId == "mms_vie_male")
+                    {
+                        filesToFetch.Add(("https://huggingface.co/facebook/mms-tts-vie/resolve/main/config.json?download=true", Path.Combine(subDir, "config.json"), 50));
+                        filesToFetch.Add(("https://huggingface.co/facebook/mms-tts-vie/resolve/main/vocab.json?download=true", Path.Combine(subDir, "vocab.json"), 50));
+                        filesToFetch.Add(("https://huggingface.co/facebook/mms-tts-vie/resolve/main/tokenizer_config.json?download=true", Path.Combine(subDir, "tokenizer_config.json"), 50));
+                        filesToFetch.Add((item.DownloadUrl, Path.Combine(subDir, "model.safetensors"), 10_000_000));
+                    }
+                }
+                else
+                {
+                    string targetOnnx = Path.Combine(_modelsDir, item.FileName);
+                    filesToFetch.Add((item.DownloadUrl, targetOnnx, item.MinSizeBytes));
+                    if (!string.IsNullOrWhiteSpace(item.JsonConfigUrl))
+                    {
+                        filesToFetch.Add((item.JsonConfigUrl, targetOnnx + ".json", 80));
+                    }
+                }
+
+                AppendRepairLog($"[\u0110ang t\u1EA3i] B\u1EAFt \u0111\u1EA7u t\u1EA3i '{item.DisplayName}'...");
+                foreach (var (url, dest, minB) in filesToFetch)
+                {
+                    string partPath = dest + ".part";
+                    using var resp = await dlClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+                    resp.EnsureSuccessStatusCode();
+                    long? totalLen = resp.Content.Headers.ContentLength;
+
+                    using (var stream = await resp.Content.ReadAsStreamAsync())
+                    using (var fs = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
+                    {
+                        byte[] buf = new byte[81920];
+                        long readTotal = 0;
+                        int r;
+                        while ((r = await stream.ReadAsync(buf, 0, buf.Length)) > 0)
+                        {
+                            await fs.WriteAsync(buf, 0, r);
+                            readTotal += r;
+                            if (totalLen.HasValue && totalLen.Value > 0)
+                            {
+                                int pct = (int)Math.Clamp(readTotal * 100L / totalLen.Value, 1, 99);
+                                item.BusyStatusText = $"\u23F3 {pct}%";
+                            }
+                        }
+                    }
+
+                    if (File.Exists(partPath) && new FileInfo(partPath).Length >= minB)
+                    {
+                        File.Move(partPath, dest, true);
+                    }
+                }
+
+                RebuildManagedModelsList();
+                RefreshAvailableModels();
+                await VerifyModelAndEngineReadinessAsync();
+                AppendRepairLog($"[Ho\u00E0n t\u1EA5t] \u0110\u00E3 t\u1EA3i xong Model '{item.DisplayName}'!");
+            }
+            catch (Exception ex)
+            {
+                AppendRepairLog($"[L\u1ED7i t\u1EA3i '{item.DisplayName}'] {ex.Message}");
+                MessageBox.Show($"Kh\u00F4ng th\u1EC3 t\u1EA3i Model '{item.DisplayName}':\n{ex.Message}", "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally
+            {
+                item.IsBusy = false;
+                item.BusyStatusText = "";
+            }
+        });
+
+        public ICommand DeleteSingleModelCommand => new RelayCommand(async (param) =>
+        {
+            if (param is not ManagedModelItem item || item.IsBusy) return;
+            if (!item.IsInstalled)
+            {
+                MessageBox.Show($"Model '{item.DisplayName}' hi\u1EC7n ch\u01B0a \u0111\u01B0\u1EE3c t\u1EA3i v\u1EC1 m\u00E1y.", "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var confirm = MessageBox.Show(
+                $"B\u1EA1n c\u00F3 ch\u1EAFc ch\u1EAFn mu\u1ED1n xo\u00E1 Model '{item.DisplayName}' ({item.FileName}) kh\u1ECFi m\u00E1y kh\u00F4ng?",
+                "X\u00E1c nh\u1EADn xo\u00E1 Model",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (confirm != MessageBoxResult.Yes) return;
+
+            try
+            {
+                _modelsDir = Logger.ResolveModelsDirectory();
+                if (item.IsFolderPackage)
+                {
+                    string subDir = Path.Combine(_modelsDir, item.CanonicalId);
+                    if (Directory.Exists(subDir)) Directory.Delete(subDir, true);
+                }
+                else
+                {
+                    string f1 = Path.Combine(_modelsDir, item.FileName);
+                    string f2 = Path.Combine(_modelsDir, item.CanonicalId);
+                    foreach (var p in new[] { f1, f1 + ".json", f2, f2 + ".json" })
+                    {
+                        if (File.Exists(p)) File.Delete(p);
+                    }
+                }
+
+                RebuildManagedModelsList();
+                RefreshAvailableModels();
+                await VerifyModelAndEngineReadinessAsync();
+                AppendRepairLog($"[\u0110\u00E3 xo\u00E1] \u0110\u00E3 xo\u00E1 Model '{item.DisplayName}' kh\u1ECFi th\u01B0 m\u1EE5c Models.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Kh\u00F4ng th\u1EC3 xo\u00E1 Model \u0111ang \u0111\u01B0\u1EE3c Engine s\u1EED d\u1EE5ng. H\u00E3y th\u1EED l\u1EA1i: " + ex.Message, "VoiceCraft", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        });
+
+        public bool IsSelectedModelFilesInstalled(out string missingReason)
+        {
+            missingReason = "";
+            _modelsDir = Logger.ResolveModelsDirectory();
+            if (!Directory.Exists(_modelsDir))
+            {
+                missingReason = "CHUA_CO_THU_MUC_MODELS";
+                return false;
+            }
+
+            var validOnnx = Directory.GetFiles(_modelsDir, "*.onnx")
+                .Where(f => new FileInfo(f).Length > 1_000_000)
+                .ToList();
+
+            string sel = SelectedModelFile ?? "T\u1EF1 \u0111\u1ED9ng theo v\u00F9ng mi\u1EC1n (Auto)";
+            if (IsAutoModelSelected)
+            {
+                if (validOnnx.Count == 0)
+                {
+                    missingReason = "CHUA_TAI_MODEL_ONNX";
+                    return false;
+                }
+                return true;
+            }
+
+            if (sel.StartsWith("[Kokoro-82M-24kHz]"))
+            {
+                bool ok = File.Exists(Path.Combine(_modelsDir, "kokoro_24k", "kokoro-v1.0.onnx")) &&
+                          File.Exists(Path.Combine(_modelsDir, "kokoro_24k", "voices-v1.0.bin"));
+                if (!ok) missingReason = "CHUA_TAI_KOKORO_24K";
+                return ok;
+            }
+
+            if (sel.StartsWith("[PyTorch]"))
+            {
+                bool ok = File.Exists(Path.Combine(_modelsDir, "mms_vie_male", "config.json")) &&
+                          File.Exists(Path.Combine(_modelsDir, "mms_vie_male", "model.safetensors"));
+                if (!ok) missingReason = "CHUA_TAI_MMS_VIE";
+                return ok;
+            }
+
+            if (sel.StartsWith("[VietTTS-HiFiGAN]"))
+            {
+                if (validOnnx.Count == 0)
+                {
+                    missingReason = "CHUA_TAI_VIETTTS";
+                    return false;
+                }
+                return true;
+            }
+
+            if (sel.StartsWith("[VieNeu-TTS-24kHz]") || sel.StartsWith("[Multilingual-24kHz]") || sel.StartsWith("[Neural-24kHz]"))
+            {
+                return true;
+            }
+
+            // Kiá»ƒm tra file .onnx trá»±c tiáº¿p
+            string directOnnx = Path.Combine(_modelsDir, sel);
+            if (!File.Exists(directOnnx) || new FileInfo(directOnnx).Length < 1_000_000)
+            {
+                missingReason = "THIEU_FILE_" + sel;
+                return false;
+            }
+            return true;
+        }
+
+        public async Task VerifyModelAndEngineReadinessAsync()
+        {
+            if (_isCheckingEngineHealth || IsProcessing) return;
+            _isCheckingEngineHealth = true;
+            try
+            {
+                EnsureModelManagerInitialized();
+                bool filesOk = IsSelectedModelFilesInstalled(out string missingCode);
+                if (!filesOk)
+                {
+                    SetErrorStatus(missingCode);
+                    CommandManager.InvalidateRequerySuggested();
+                    return;
+                }
+
+                bool engineOk = await _engineManager.IsServerRunningAsync();
+                if (engineOk)
+                {
+                    SetReadyStatus();
+                }
+                else
+                {
+                    SetErrorStatus("ERR_ENGINE_8000");
+                }
+                CommandManager.InvalidateRequerySuggested();
+            }
+            catch { }
+            finally
+            {
+                _isCheckingEngineHealth = false;
+            }
+        }
 
         private void SetReadyStatus()
         {
@@ -2612,13 +3119,19 @@ namespace VoiceCraft.App_Core.ViewModels
                 SynthesisStatusText = "Dang tron song am tong hop (Master Composite Mixdown)...";
                 await Task.Delay(160);
             }
-            catch { }
+                await Task.Run(() => ExportMasterCompositeToWavFile_Core());
+                SynthesisProgress = 100;
+                SynthesisStatusText = "Ho\u00E0n t\u1EA5t 100%!";
+                await Task.Delay(150);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Loi xuat file Mini Studio", ex);
+            }
             finally
             {
-                SynthesisProgress = 100;
                 IsProcessing = false;
             }
-            ExportMasterCompositeToWavFile_Core();
         }
 
         private void ExportMasterCompositeToWavFile_Core()

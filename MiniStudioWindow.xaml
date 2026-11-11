@@ -48,6 +48,7 @@
 
             <!-- BỐ CỤC 3 CỘT: TRÁI (CHỈNH EQ/TONE/NHÁI GIỌNG) - GIỮA (TIMELINE N-LAYER + SÓNG ÂM TỔNG HỢP) - PHẢI (DANH SÁCH BẢN GHI + VOLUME PHỤ) -->
             <Grid Grid.Row="1" Margin="12,10,12,12" IsEnabled="{Binding IsControlsEnabled, FallbackValue=True}">
+                <Grid.Effect><BlurEffect Radius="{Binding EditorBlurRadius, FallbackValue=0, TargetNullValue=0}"/></Grid.Effect>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="335"/>
                     <ColumnDefinition Width="*"/>
@@ -537,7 +538,7 @@
             </Grid>
 
             <!-- OVERLAY XUAT FILE DA CHINH SUA (GIAO DIEN Y HET LUC CHUYEN VAN BAN THANH GIONG NOI) -->
-            <Border Grid.Row="1" Background="#99040810" CornerRadius="5" Margin="12,10,12,12"
+            <Border Grid.Row="1" Panel.ZIndex="999" Background="#AA040810" CornerRadius="5" Margin="12,10,12,12"
                     Visibility="{Binding ProcessingVisibility, FallbackValue=Collapsed, TargetNullValue=Collapsed}"
                     IsHitTestVisible="{Binding IsProcessing, FallbackValue=False, TargetNullValue=False}">
                 <Border Width="390" VerticalAlignment="Center" HorizontalAlignment="Center"
@@ -564,3 +565,4 @@
         </Grid>
     </Border>
 </Window>
+<!-- Synchronized for Release VoiceCraft v1.0.6 -->

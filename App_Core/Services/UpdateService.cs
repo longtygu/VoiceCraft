@@ -24,7 +24,7 @@ namespace VoiceCraft.App_Core.Services
 
     public class UpdateService : IDisposable
     {
-        public const string CurrentAppVersion = "1.0.5";
+        public const string CurrentAppVersion = "1.0.6";
         public const string LockedGitHubRepoUrl = "https://github.com/longtygu/VoiceCraft";
         public const string LockedGitHubRepoSlug = "longtygu/VoiceCraft";
         private readonly HttpClient _httpClient;

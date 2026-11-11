@@ -1,3 +1,4 @@
+﻿// Synchronized for Release VoiceCraft v1.0.6
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
