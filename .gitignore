@@ -1,0 +1,24 @@
+# VoiceCraft v1.0.6 Official .gitignore
+bin/
+obj/
+Logs/
+Output/
+Updates/
+ReleaseBin/
+Properties/PublishProfiles/
+.vs/
+.vscode/
+*_wpftmp.csproj
+*.user
+*.suo
+*.part
+Engine/build_py/
+Engine/dist/
+Engine/TTS_Engine/
+Engine/__pycache__/
+Models/*.onnx
+Models/*.bin
+Models/*.safetensors
+Models/kokoro_24k/
+Models/mms_vie_male/
+Models/neural_cache/

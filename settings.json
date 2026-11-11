@@ -1,0 +1,111 @@
+{
+  "SelectedAeroTheme": "\u0110en Kh\u00F3i Windows 10 (Obsidian Glass)",
+  "SelectedAccentItem": "Xanh Aero Cyan (#00B4FF)",
+  "SelectedWaveformColorItem": "Cam Ho\u00E0ng H\u00F4n (#FB923C)",
+  "SelectedSecondaryLineColorItem": "V\u00E0ng Tia Ch\u1EDBp (#FFD600)",
+  "GlassOpacity": 0.25,
+  "CardOpacity": 0.15,
+  "ShowAeroReflection": false,
+  "SelectedVoice": "Song ng\u1EEF Vi\u1EC7t - Anh (T\u1EF1 \u0111\u1ED9ng)",
+  "SelectedModelFile": "T\u1EF1 \u0111\u1ED9ng theo v\u00F9ng mi\u1EC1n (Auto)",
+  "SpeakerId": 46,
+  "BypassDsp": false,
+  "SelectedGender": "N\u1EEF (Female)",
+  "BilingualAuto": true,
+  "SingleVoiceMode": true,
+  "AutoPlayAudio": true,
+  "Speed": 1,
+  "Pitch": 1,
+  "Volume": 100,
+  "IsVoiceCloneEnabled": false,
+  "IsEqPanelExpanded": false,
+  "CloneReferencePath": "",
+  "CloneStrength": 0.8,
+  "EqBassDb": 0,
+  "EqTrebleDb": 0,
+  "DeHissCutoff": 10000,
+  "VitsNoiseScale": 0.67,
+  "ModelProfiles": {
+    "[Multilingual-24kHz] en-US-AndrewMultilingualNeural (Nam \u0110\u1ECDc Vi\u1EC7t\u002BAnh \u0110\u1ED3ng Nh\u1EA5t)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 0,
+      "EqTrebleDb": 0,
+      "DeHissCutoff": 10000,
+      "VitsNoiseScale": 0.67
+    },
+    "T\u1EF1 \u0111\u1ED9ng theo v\u00F9ng mi\u1EC1n (Auto)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 0,
+      "EqTrebleDb": 0,
+      "DeHissCutoff": 10000,
+      "VitsNoiseScale": 0.67
+    },
+    "[VieNeu-TTS-24kHz] Gi\u1ECDng N\u1EEF Truy\u1EC1n C\u1EA3m (Vietnamese Neural Prosody)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 0,
+      "EqTrebleDb": 0,
+      "DeHissCutoff": 10000,
+      "VitsNoiseScale": 0.67
+    },
+    "[Multilingual-24kHz] en-US-BrianMultilingualNeural (Nam Tr\u1EA7m Vi\u1EC7t\u002BAnh \u0110\u1ED3ng Nh\u1EA5t)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 0,
+      "EqTrebleDb": 0,
+      "DeHissCutoff": 10000,
+      "VitsNoiseScale": 0.67
+    },
+    "[Neural-24kHz] vi-VN-NamMinhNeural (Gi\u1ECDng Nam Vi\u1EC7t Si\u00EAu Th\u1EF1c)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 0,
+      "EqTrebleDb": 0,
+      "DeHissCutoff": 10000,
+      "VitsNoiseScale": 0.67
+    },
+    "[Kokoro-82M-24kHz] af_heart (N\u1EEF M\u1EF9 Ph\u00F2ng Thu Top #1)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 0,
+      "EqTrebleDb": 0,
+      "DeHissCutoff": 10000,
+      "VitsNoiseScale": 0.67
+    },
+    "[VietTTS-HiFiGAN] Gi\u1ECDng Nam Tr\u1EA7m Chu\u1EA9n (Offline VITS \u002B HiFi-GAN)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 2,
+      "EqTrebleDb": 1.5,
+      "DeHissCutoff": 10500,
+      "VitsNoiseScale": 0.67
+    },
+    "[Multilingual-24kHz] en-US-AvaMultilingualNeural (N\u1EEF \u0110\u1ECDc Vi\u1EC7t\u002BAnh \u0110\u1ED3ng Nh\u1EA5t)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 6.5,
+      "EqTrebleDb": -3,
+      "DeHissCutoff": 10000,
+      "VitsNoiseScale": 0.9
+    },
+    "[VieNeu-TTS-24kHz] Gi\u1ECDng Nam Truy\u1EC1n C\u1EA3m (Vietnamese Neural Prosody)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 0,
+      "EqTrebleDb": 0,
+      "DeHissCutoff": 10000,
+      "VitsNoiseScale": 0.67
+    },
+    "[VietTTS-HiFiGAN] Gi\u1ECDng N\u1EEF Mi\u1EC1n B\u1EAFc Chu\u1EA9n (Offline NAT \u002B Prosody)": {
+      "Speed": 1,
+      "Pitch": 1,
+      "EqBassDb": 2,
+      "EqTrebleDb": 1.5,
+      "DeHissCutoff": 10500,
+      "VitsNoiseScale": 0.67
+    }
+  },
+  "GitHubRepo": "https://github.com/longtygu/VoiceCraft"
+}

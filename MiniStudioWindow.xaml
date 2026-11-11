@@ -1,0 +1,568 @@
+﻿<Window x:Class="VoiceCraft.MiniStudioWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="VoiceCraft - Mini Studio (Kéo Trống/Thước Đo Di Chuyển • Mở Rộng Rỗng • Quét Chọn Nhiều • Đa Layer)"
+        Height="880" Width="1460"
+        MinHeight="760" MinWidth="1220"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip"
+        Focusable="True" KeyDown="Window_KeyDown">
+
+    <Border Background="{Binding WindowGlassBrush, FallbackValue=#D912161F}" CornerRadius="6" BorderThickness="1" BorderBrush="{Binding WindowBorderBrush, FallbackValue=#550078D4}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="44"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <Polygon Grid.Row="0" Grid.RowSpan="2" Points="0,0 620,0 340,880 0,880" IsHitTestVisible="False"
+                     Visibility="{Binding AeroReflectionVisibility, FallbackValue=Visible}">
+                <Polygon.Fill>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#14FFFFFF" Offset="0.0"/>
+                        <GradientStop Color="#05FFFFFF" Offset="0.5"/>
+                        <GradientStop Color="#00FFFFFF" Offset="1.0"/>
+                    </LinearGradientBrush>
+                </Polygon.Fill>
+            </Polygon>
+
+            <!-- THANH TIÊU ĐỀ CỬA SỔ MINI STUDIO -->
+            <Border Grid.Row="0" Background="#24000000" BorderBrush="#28FFFFFF" BorderThickness="0,0,0,1"
+                    CornerRadius="6,6,0,0" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                <Grid>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0,0,0">
+                        <Ellipse Width="10" Height="10" Fill="#00E5FF" Margin="0,0,10,0"/>
+                        <TextBlock Text="🎚️ VoiceCraft Mini Studio" Foreground="White" FontWeight="Bold" FontSize="15" VerticalAlignment="Center"/>
+                        <Border Background="#2200E5FF" CornerRadius="3" Padding="10,2" Margin="12,0,0,0" BorderBrush="#4400E5FF" BorderThickness="1">
+                            <TextBlock Text="Kéo ở vị trí trống / trên Thước đo để di chuyển Timeline • Di chuột vào đoạn để hiện nút mở rộng rỗng 2 đầu • Quét chọn nhiều đoạn" Foreground="#B8E8FF" FontSize="11"/>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Stretch">
+                        <Button Focusable="False" Content="─" Width="46" Style="{StaticResource Win10TitleBtn}" Click="Minimize_Click"/>
+                        <Button Focusable="False" Content="☐" Width="46" Style="{StaticResource Win10TitleBtn}" Click="Maximize_Click"/>
+                        <Button Focusable="False" Content="✕" Width="48" Style="{StaticResource Win10CloseBtn}" Click="Close_Click"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- BỐ CỤC 3 CỘT: TRÁI (CHỈNH EQ/TONE/NHÁI GIỌNG) - GIỮA (TIMELINE N-LAYER + SÓNG ÂM TỔNG HỢP) - PHẢI (DANH SÁCH BẢN GHI + VOLUME PHỤ) -->
+            <Grid Grid.Row="1" Margin="12,10,12,12" IsEnabled="{Binding IsControlsEnabled, FallbackValue=True}">
+                <Grid.Effect><BlurEffect Radius="{Binding EditorBlurRadius, FallbackValue=0, TargetNullValue=0}"/></Grid.Effect>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="335"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="315"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- ==================== 1. CỘT TRÁI: CHỈNH EQ, TONE & NHÁI GIỌNG CHO THÀNH PHẦN ĐANG CHỌN ==================== -->
+                <Border Grid.Column="0" Background="{Binding CardGlassBrush, FallbackValue=#73090E17}" CornerRadius="5" Padding="14,12" Margin="0,0,10,0"
+                        BorderBrush="#30FFFFFF" BorderThickness="1">
+                    <ScrollViewer Focusable="False" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                        <StackPanel>
+                            <TextBlock Text="🛠️ CHỈNH SỬA THÀNH PHẦN ĐANG CHỌN" Foreground="#00E5FF" FontWeight="Bold" FontSize="12" Margin="0,0,0,6"/>
+
+                            <Border Background="#24102038" BorderBrush="#5500E5FF" BorderThickness="1" CornerRadius="4" Padding="8,5" Margin="0,0,0,10">
+                                <TextBlock Text="{Binding SelectedClipInspectorTitle}" Foreground="#FFF59D" FontSize="11" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                            </Border>
+
+                            <!-- BỘ LỌC 5-BAND EQ (ĐỔI MÀU NỀN CLIP KHI CHỈNH EQ) -->
+                            <Border Background="#2D142C" BorderBrush="#77E040FB" BorderThickness="1.2" CornerRadius="5" Padding="12,10" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="🎚️ 1. CHỈNH TẦN SỐ EQ (ĐỔI MÀU CLIP)" Foreground="#EA80FC" FontWeight="Bold" FontSize="11.5" VerticalAlignment="Center"/>
+                                        <Button Focusable="False" Grid.Column="1" Content="↺ Mặc định (0dB)" Command="{Binding ResetStudioEqCommand}" Style="{StaticResource MiniChipBtn}" Padding="8,2"/>
+                                    </Grid>
+
+                                    <TextBlock Text="💡 Khi chỉnh EQ, màu nền của thành phần trên Layer tự động đổi sang màu Tím Hồng để đánh dấu đã chỉnh EQ."
+                                               Foreground="#CE93D8" FontSize="10.5" TextWrapping="Wrap" Margin="0,0,0,8"/>
+
+                                    <Grid Margin="0,0,0,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="1. Siêu trầm (Sub-Bass 80 Hz):" Foreground="#E6F2FF" FontSize="11"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding StudioBand80Hz, StringFormat={}{0:0.0} dB}" Foreground="#00E676" FontWeight="Bold" FontFamily="Consolas" FontSize="11"/>
+                                    </Grid>
+                                    <Slider Focusable="False" Minimum="-12.0" Maximum="12.0" Value="{Binding StudioBand80Hz}" TickFrequency="0.5" IsSnapToTickEnabled="True" Margin="0,0,0,5"/>
+
+                                    <Grid Margin="0,0,0,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="2. Độ ấm ngực (Warmth 220 Hz):" Foreground="#E6F2FF" FontSize="11"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding StudioBand220Hz, StringFormat={}{0:0.0} dB}" Foreground="#00E676" FontWeight="Bold" FontFamily="Consolas" FontSize="11"/>
+                                    </Grid>
+                                    <Slider Focusable="False" Minimum="-12.0" Maximum="12.0" Value="{Binding StudioBand220Hz}" TickFrequency="0.5" IsSnapToTickEnabled="True" Margin="0,0,0,5"/>
+
+                                    <Grid Margin="0,0,0,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="3. Trung âm (Mid 1000 Hz):" Foreground="#E6F2FF" FontSize="11"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding StudioBand1kHz, StringFormat={}{0:0.0} dB}" Foreground="#00E5FF" FontWeight="Bold" FontFamily="Consolas" FontSize="11"/>
+                                    </Grid>
+                                    <Slider Focusable="False" Minimum="-12.0" Maximum="12.0" Value="{Binding StudioBand1kHz}" TickFrequency="0.5" IsSnapToTickEnabled="True" Margin="0,0,0,5"/>
+
+                                    <Grid Margin="0,0,0,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="4. Độ rõ chữ (Presence 3.5 kHz):" Foreground="#E6F2FF" FontSize="11"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding StudioBand3k5Hz, StringFormat={}{0:0.0} dB}" Foreground="#00E5FF" FontWeight="Bold" FontFamily="Consolas" FontSize="11"/>
+                                    </Grid>
+                                    <Slider Focusable="False" Minimum="-12.0" Maximum="12.0" Value="{Binding StudioBand3k5Hz}" TickFrequency="0.5" IsSnapToTickEnabled="True" Margin="0,0,0,5"/>
+
+                                    <Grid Margin="0,0,0,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="5. Độ thoáng (Air Treble 8 kHz):" Foreground="#E6F2FF" FontSize="11"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding StudioBand8kHz, StringFormat={}{0:0.0} dB}" Foreground="#00E5FF" FontWeight="Bold" FontFamily="Consolas" FontSize="11"/>
+                                    </Grid>
+                                    <Slider Focusable="False" Minimum="-12.0" Maximum="12.0" Value="{Binding StudioBand8kHz}" TickFrequency="0.5" IsSnapToTickEnabled="True" Margin="0,0,0,5"/>
+
+                                    <Grid Margin="0,0,0,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Cắt ù trầm (Highpass Hz):" Foreground="#B8E8FF" FontSize="11"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding StudioHighpassHz, StringFormat={}{0:0} Hz}" Foreground="#FFD600" FontWeight="Bold" FontFamily="Consolas" FontSize="11"/>
+                                    </Grid>
+                                    <Slider Focusable="False" Minimum="20" Maximum="250" Value="{Binding StudioHighpassHz}" TickFrequency="5" IsSnapToTickEnabled="True" Margin="0,0,0,5"/>
+
+                                    <Grid Margin="0,0,0,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Khử sôi nền (Lowpass Hz):" Foreground="#B8E8FF" FontSize="11"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding StudioLowpassHz, StringFormat={}{0:0} Hz}" Foreground="#FFD600" FontWeight="Bold" FontFamily="Consolas" FontSize="11"/>
+                                    </Grid>
+                                    <Slider Focusable="False" Minimum="4000" Maximum="12000" Value="{Binding StudioLowpassHz}" TickFrequency="250" IsSnapToTickEnabled="True"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- CHỈNH TONE & TỐC ĐỘ -->
+                            <Border Background="#280D1420" BorderBrush="#38A855F7" BorderThickness="1" CornerRadius="5" Padding="12,10" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <TextBlock Text="🎵 2. CHỈNH TONE &amp; TỐC ĐỘ CLIP" Foreground="#C084FC" FontWeight="Bold" FontSize="11.5" Margin="0,0,0,8"/>
+
+                                    <Grid Margin="0,0,0,3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Chỉnh Tone (Bán âm Semitones):" Foreground="#E6F2FF" FontSize="11.5"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding StudioSemitonesDisplay}" Foreground="#FFD600" FontWeight="Bold" FontFamily="Consolas" FontSize="12"/>
+                                    </Grid>
+                                    <Slider Focusable="False" Minimum="-12.0" Maximum="12.0" Value="{Binding StudioSemitones}" TickFrequency="0.5" IsSnapToTickEnabled="True" Margin="0,0,0,6"/>
+
+                                    <UniformGrid Rows="1" Columns="5" Margin="0,0,0,10">
+                                        <Button Focusable="False" Content="-4" Command="{Binding SetStudioSemitonePresetCommand}" CommandParameter="-4" Style="{StaticResource MiniChipBtn}" Height="24"/>
+                                        <Button Focusable="False" Content="-2" Command="{Binding SetStudioSemitonePresetCommand}" CommandParameter="-2" Style="{StaticResource MiniChipBtn}" Height="24"/>
+                                        <Button Focusable="False" Content="0 (Gốc)" Command="{Binding SetStudioSemitonePresetCommand}" CommandParameter="0" Style="{StaticResource MiniChipBtn}" Height="24"/>
+                                        <Button Focusable="False" Content="+2" Command="{Binding SetStudioSemitonePresetCommand}" CommandParameter="2" Style="{StaticResource MiniChipBtn}" Height="24"/>
+                                        <Button Focusable="False" Content="+4" Command="{Binding SetStudioSemitonePresetCommand}" CommandParameter="4" Style="{StaticResource MiniChipBtn}" Height="24"/>
+                                    </UniformGrid>
+
+                                    <Grid Margin="0,0,0,3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Tốc độ đoạn (Speed):" Foreground="#E6F2FF" FontSize="11.5"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding StudioSpeed, StringFormat={}{0:0.0#}x}" Foreground="White" FontWeight="Bold" FontFamily="Consolas" FontSize="12"/>
+                                    </Grid>
+                                    <Slider Focusable="False" Minimum="0.5" Maximum="2.0" Value="{Binding StudioSpeed}" TickFrequency="0.05" IsSnapToTickEnabled="True"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- NHÁI GIỌNG AI LÊN CLIP ĐANG CHỌN -->
+                            <Border Background="#280A1828" BorderBrush="#4400E5FF" BorderThickness="1" CornerRadius="5" Padding="12,10">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="🧬 3. ÁP DỤNG NHÁI GIỌNG MẪU" Foreground="#00E5FF" FontWeight="Bold" FontSize="11.5" VerticalAlignment="Center"/>
+                                        <CheckBox Focusable="False" Grid.Column="1" IsChecked="{Binding StudioCloneEnabled}" Content="Bật" Foreground="#FFF59D" FontWeight="SemiBold"/>
+                                    </Grid>
+
+                                    <TextBlock Text="{Binding CloneReferenceFileName}" Foreground="#B8E8FF" FontSize="11" FontFamily="Consolas" TextTrimming="CharacterEllipsis" Margin="0,0,0,6"/>
+
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Button Focusable="False" Grid.Column="0" Content="📂 Chọn mẫu giọng (.wav/.mp3)" Command="{Binding SelectCloneSampleCommand}" Style="{StaticResource MiniChipBtn}" Height="26" Margin="0,0,4,0"/>
+                                        <Button Focusable="False" Grid.Column="1" Content="▶ Nghe mẫu" Command="{Binding PreviewCloneSampleCommand}" Style="{StaticResource MiniChipBtn}" Height="26" Padding="8,2"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,0,0,3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Độ khớp giọng mẫu (Strength):" Foreground="#D8ECFF" FontSize="11.5"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding StudioCloneStrength, StringFormat={}{0:P0}}" Foreground="#00E5FF" FontWeight="Bold" FontFamily="Consolas" FontSize="11.5"/>
+                                    </Grid>
+                                    <Slider Focusable="False" Minimum="0.0" Maximum="1.0" Value="{Binding StudioCloneStrength}" TickFrequency="0.05" IsSnapToTickEnabled="True"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Border>
+
+                <!-- ==================== 2. KHU VỰC GIỮA: CỬA SỔ LAYER (THANH CÔNG CỤ 3 HÀNG + KÉO TRỐNG/THƯỚC ĐO + QUÉT CHỌN NHIỀU + MỞ RỘNG RỖNG) ==================== -->
+                <Grid Grid.Column="1" Margin="0,0,10,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="240"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- A. BÀN DỰNG TIMELINE ĐA LAYER ĐỘNG -->
+                    <Border Grid.Row="0" Background="#45040811" CornerRadius="5" Margin="0,0,0,10" BorderBrush="#4000E5FF" BorderThickness="1.5" ClipToBounds="True">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- THANH CÔNG CỤ THAO TÁC BỐ TRÍ THÀNH 3 HÀNG RỘNG RÃI, HIỂN THỊ ĐẦY ĐỦ 100% -->
+                            <Border Grid.Row="0" Background="#40081220" Padding="10,6" BorderBrush="#28FFFFFF" BorderThickness="0,0,0,1">
+                                <StackPanel>
+                                    <!-- HÀNG 1: QUẢN LÝ LAYER & CHẾ ĐỘ CHUỘT (DI CHUYỂN TIMELINE vs QUÉT CHỌN NHIỀU ĐOẠN) -->
+                                    <Grid Margin="0,0,0,5">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <WrapPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button Focusable="False" Content="➕ Thêm Layer mới" Click="AddLayerButton_Click" Style="{StaticResource FlatPrimaryBtn}" Height="27" Padding="10,2" Margin="0,0,6,2" FontSize="11.5" ToolTip="Thêm dòng Layer mới (Layer 2, Layer 3, Layer 4...)"/>
+                                            <Button Focusable="False" x:Name="PanEmptySpaceModeBtn" Content="✋ Chuột vùng trống: Di chuyển Timeline (Đang bật)" Click="PanEmptySpaceModeBtn_Click" Style="{StaticResource MiniChipBtn}" Height="27" Padding="10,2" Margin="0,0,6,2" Foreground="#00E676" FontWeight="Bold" ToolTip="Khi bật: Kéo chuột ở vị trí trống trên Layer hoặc trên Thước đo sẽ trượt di chuyển Timeline tự do"/>
+                                            <Button Focusable="False" x:Name="MarqueeSelectModeBtn" Content="🔲 Chế độ Quét chọn nhiều đoạn: Tắt" Click="MarqueeSelectModeBtn_Click" Style="{StaticResource MiniChipBtn}" Height="27" Padding="10,2" Margin="0,0,6,2" Foreground="#80D8FF" FontWeight="SemiBold" ToolTip="Khi bật (hoặc giữ phím Shift + Kéo chuột): Di chuột tạo khung vùng chọn nhiều thành phần cùng lúc"/>
+                                        </WrapPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button Focusable="False" Content="☑️ Chọn hết (Ctrl+A)" Click="SelectAllClipsButton_Click" Style="{StaticResource MiniChipBtn}" Height="26" Padding="8,2" Margin="0,0,5,0" ToolTip="Chọn toàn bộ các thành phần trên mọi Layer"/>
+                                            <Button Focusable="False" Content="✖️ Bỏ chọn" Click="ClearSelectionButton_Click" Style="{StaticResource MiniChipBtn}" Height="26" Padding="8,2" ToolTip="Bỏ chọn các thành phần đang đánh dấu"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <!-- HÀNG 2: CÁC NÚT BIÊN TẬP THÀNH PHẦN (CẮT TÁCH, COPY, PASTE, MỞ RỘNG RỖNG, XOÁ) -->
+                                    <UniformGrid Rows="1" Columns="6" Height="28" Margin="0,0,0,5">
+                                        <Button Focusable="False" Content="✂️ Tách tại Vạch đỏ (Ctrl+B)" Click="SplitClipButton_Click" Style="{StaticResource MiniChipBtn}" Margin="0,0,5,0" Foreground="#FFF59D" FontWeight="SemiBold" ToolTip="Cắt tách thành phần tại vị trí Vạch đỏ"/>
+                                        <Button Focusable="False" Content="📋 Sao chép (Ctrl+C)" Click="CopyClipButton_Click" Style="{StaticResource MiniChipBtn}" Margin="0,0,5,0" ToolTip="Sao chép (các) thành phần đang chọn"/>
+                                        <Button Focusable="False" Content="📌 Dán tại Vạch đỏ (Ctrl+V)" Click="PasteClipButton_Click" Style="{StaticResource MiniChipBtn}" Margin="0,0,5,0" ToolTip="Dán (các) thành phần vào vị trí Vạch đỏ"/>
+                                        <Button Focusable="False" Content="↔️ Mở rộng rỗng +2s" Click="ExtendEmpty2SecButton_Click" Style="{StaticResource MiniChipBtn}" Margin="0,0,5,0" Foreground="#80CBC4" ToolTip="Mở rộng nhanh thêm 2 giây khoảng rỗng (im lặng) vào cuối thành phần đang chọn (Hoặc di chuột vào đoạn rồi kéo nút ◀ / ▶)"/>
+                                        <Button Focusable="False" Content="🗑️ Xoá đoạn chọn (Del)" Click="DeleteClipButton_Click" Style="{StaticResource MiniChipBtn}" Margin="0,0,5,0" Foreground="#FF8A80" ToolTip="Xoá toàn bộ các thành phần đang chọn"/>
+                                        <Button Focusable="False" Content="🧹 Xoá sạch Timeline" Click="ClearAllTimelineButton_Click" Style="{StaticResource MiniChipBtn}" ToolTip="Xoá hết mọi thành phần và đưa về 1 Layer"/>
+                                    </UniformGrid>
+
+                                    <!-- HÀNG 3: THU PHÓNG TIMELINE (CTRL + LĂN CHUỘT) & GHI CHÚ THAO TÁC -->
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button Focusable="False" Content="🔲 Vừa khung (Ctrl+0)" Click="ZoomFitButton_Click" Style="{StaticResource MiniChipBtn}" Height="24" Padding="8,2" Margin="0,0,6,0" Foreground="#00E676"/>
+                                            <Button Focusable="False" Content="➖ Thu nhỏ" Click="ZoomOutButton_Click" Style="{StaticResource MiniChipBtn}" Height="24" Padding="8,2" Margin="0,0,4,0"/>
+                                            <Slider Focusable="False" x:Name="TimelineZoomSlider" Minimum="1.5" Maximum="300" Value="60" Width="120" VerticalAlignment="Center" ValueChanged="TimelineZoomSlider_ValueChanged"/>
+                                            <Button Focusable="False" Content="➕ Phóng to" Click="ZoomInButton_Click" Style="{StaticResource MiniChipBtn}" Height="24" Padding="8,2" Margin="4,0,8,0"/>
+                                            <Border Background="#2500E5FF" BorderBrush="#5500E5FF" BorderThickness="1" CornerRadius="3" Padding="7,1" VerticalAlignment="Center">
+                                                <TextBlock x:Name="ZoomLevelText" Text="60 px/s" Foreground="#00E5FF" FontFamily="Consolas" FontWeight="Bold" FontSize="11"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="💡 Mẹo: Di chuột vào thành phần để hiện nút kéo mở rộng ◀ / ▶ (Kéo vượt độ dài gốc sẽ tạo phần mở rộng rỗng)"
+                                                   Foreground="#90B4D4" FontSize="10.5" VerticalAlignment="Center" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" Margin="10,0,0,0"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Vùng hiển thị danh sách Layer động và mặt phẳng kéo thả Clip -->
+                            <Grid Grid.Row="1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="120"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Cột nhãn tên các Layer bên trái -->
+                                <Grid Grid.Column="0" Background="#55060C16">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="28"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+                                    <Border Grid.Row="0" Background="#400A1424" BorderBrush="#28FFFFFF" BorderThickness="0,0,1,1" Padding="8,0">
+                                        <TextBlock Text="⏱️ THƯỚC ĐO" Foreground="#90B4D4" FontWeight="Bold" FontSize="10.5" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <ScrollViewer Focusable="False" x:Name="LayerHeadersScrollViewer" Grid.Row="1" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled"
+                                                  PreviewMouseWheel="TimelineScrollViewer_PreviewMouseWheel">
+                                        <StackPanel x:Name="LayerHeadersStack"/>
+                                    </ScrollViewer>
+                                </Grid>
+
+                                <!-- Mặt phẳng Timeline Đa Layer -->
+                                <Grid Grid.Column="1" Background="#3502050A">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="28"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+
+                                    <!-- Thước đo thời gian phía trên: Cho phép nắm kéo chuột trái để di chuyển Timeline tự do, hoặc nhấp đơn để đặt Vạch phát -->
+                                    <ScrollViewer Focusable="False" x:Name="RulerScrollViewer" Grid.Row="0" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
+                                                  PreviewMouseWheel="TimelineScrollViewer_PreviewMouseWheel">
+                                        <Canvas x:Name="TimeRulerCanvas" Height="28" Width="2400" Background="#450A1424" Cursor="SizeWE"
+                                                ToolTip="Kéo chuột trái trên thước đo để di chuyển Timeline • Nhấp đơn để chuyển Vạch đỏ tới vị trí đó"
+                                                MouseLeftButtonDown="TimeRulerCanvas_MouseLeftButtonDown"
+                                                MouseMove="TimeRulerCanvas_MouseMove"
+                                                MouseLeftButtonUp="TimeRulerCanvas_MouseLeftButtonUp"/>
+                                    </ScrollViewer>
+
+                                    <!-- Vùng cuộn 2 chiều chứa các dòng Layer 1, 2, 3, 4... -->
+                                    <ScrollViewer Focusable="False" x:Name="TimelineScrollViewer" Grid.Row="1"
+                                                  HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Auto"
+                                                  ScrollChanged="TimelineScrollViewer_ScrollChanged"
+                                                  PreviewMouseWheel="TimelineScrollViewer_PreviewMouseWheel">
+                                        <Grid x:Name="CapCutTrackSurface" Width="2400" MinHeight="220" VerticalAlignment="Top"
+                                              AllowDrop="True" Background="Transparent"
+                                              DragEnter="CapCutTrackSurface_DragEnter"
+                                              DragOver="CapCutTrackSurface_DragOver"
+                                              DragLeave="CapCutTrackSurface_DragLeave"
+                                              Drop="CapCutTrackSurface_Drop"
+                                              MouseDown="CapCutTrackSurface_MouseDown"
+                                              MouseUp="CapCutTrackSurface_MouseUp"
+                                              MouseLeftButtonDown="CapCutTrackSurface_MouseLeftButtonDown"
+                                              MouseMove="CapCutTrackSurface_MouseMove"
+                                              MouseLeftButtonUp="CapCutTrackSurface_MouseLeftButtonUp"
+                                              MouseRightButtonDown="CapCutTrackSurface_MouseRightButtonDown">
+
+                                            <Canvas x:Name="LayerLanesBackgroundCanvas" IsHitTestVisible="False"/>
+                                            <Canvas x:Name="CapCutClipsCanvas"/>
+
+                                            <Canvas x:Name="CapCutPlayheadCanvas" IsHitTestVisible="False">
+                                                <!-- Khung quét chọn nhiều thành phần (Marquee Multi-Selection Box) -->
+                                                <Rectangle x:Name="MarqueeSelectionBox" Fill="#2800E5FF" Stroke="#00E5FF" StrokeThickness="1.5"
+                                                           StrokeDashArray="4,2" Visibility="Collapsed" Canvas.Left="0" Canvas.Top="0" Width="0" Height="0"/>
+
+                                                <Line x:Name="CapCutHoverLine" Y1="0" Y2="800" Stroke="#88FFD600" StrokeThickness="1.2" StrokeDashArray="3,2" Visibility="Collapsed" Canvas.Left="0"/>
+                                                <Line x:Name="CapCutPlayheadLine" Y1="0" Y2="800" Stroke="#FF2E54" StrokeThickness="2" Canvas.Left="0"/>
+                                                <Polygon x:Name="CapCutPlayheadHead" Points="-7,0 7,0 7,9 0,15 -7,9" Fill="#FF2E54" Canvas.Left="0" Canvas.Top="0"/>
+                                            </Canvas>
+
+                                            <Border x:Name="DropMergeHighlightOverlay" Background="#3800E676" BorderBrush="#00E676" BorderThickness="2" CornerRadius="4"
+                                                    Visibility="Collapsed" IsHitTestVisible="False">
+                                                <Border Background="#E606121E" CornerRadius="5" Padding="18,10" HorizontalAlignment="Center" VerticalAlignment="Center" BorderBrush="#00E676" BorderThickness="1">
+                                                    <TextBlock Text="🎬 THẢ BẢN GHI VÀO DÒNG LAYER HOẶC THẢ XUỐNG DƯỚI ĐỂ TỰ TẠO LAYER MỚI!" Foreground="#00E676" FontWeight="Bold" FontSize="13"/>
+                                                </Border>
+                                            </Border>
+                                        </Grid>
+                                    </ScrollViewer>
+                                </Grid>
+                            </Grid>
+                        </Grid>
+                    </Border>
+
+                    <!-- B. PHÍA DƯỚI: TRÌNH PHÁT TỔNG HỢP CỦA CÁC LAYER & HIỂN THỊ SÓNG ÂM TỔNG HỢP (NÚT BỐ TRÍ 2 HÀNG RÕ RÀNG) -->
+                    <Border Grid.Row="1" Background="#48040914" CornerRadius="5" BorderBrush="#5500E676" BorderThickness="1.5" Padding="12,8">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="28"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- Tiêu đề Sóng âm tổng hợp & Độ dài tổng hợp của tất cả các Layer -->
+                            <Border Grid.Row="0" Background="#45081426" CornerRadius="4" Padding="10,3" BorderBrush="#30FFFFFF" BorderThickness="1">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="🌊 SÓNG ÂM TỔNG HỢP CÁC LAYER: " Foreground="#00E676" FontWeight="Bold" FontSize="11.5"/>
+                                        <TextBlock Text="{Binding StudioMasterSummaryText}" Foreground="White" FontWeight="SemiBold" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Border Background="#2800E676" BorderBrush="#8800E676" BorderThickness="1" CornerRadius="3" Padding="8,1" Margin="0,0,8,0">
+                                            <TextBlock Text="{Binding TotalTimeText, StringFormat=ĐỘ DÀI TỔNG HỢP: {0}}" Foreground="#00E676" FontWeight="Bold" FontFamily="Consolas" FontSize="11.5"/>
+                                        </Border>
+                                        <TextBlock Text="VẠCH PHÁT: " Foreground="#90B4D4" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding CurrentTimeText}" Foreground="#FF5252" FontWeight="Bold" FontFamily="Consolas" FontSize="12.5" VerticalAlignment="Center"/>
+                                        <TextBlock Text=" / " Foreground="#7090B0" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding TotalTimeText}" Foreground="#E0F7FA" FontWeight="Bold" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <!-- Khung hiển thị Sóng âm Tổng hợp của toàn bộ các Layer -->
+                            <Border x:Name="StudioWaveformStage" Grid.Row="1" Background="#5502050B" CornerRadius="4" Margin="0,5,0,5"
+                                    BorderBrush="#3500E676" BorderThickness="1" ClipToBounds="True" Cursor="Hand"
+                                    MouseLeftButtonDown="StudioWaveformStage_MouseLeftButtonDown"
+                                    MouseMove="StudioWaveformStage_MouseMove"
+                                    SizeChanged="StudioWaveformStage_SizeChanged">
+                                <Grid>
+                                    <Line x:Name="CenterZeroLine" X1="0" Y1="45" X2="2500" Y2="45" Stroke="#24FFFFFF" StrokeThickness="1" IsHitTestVisible="False"/>
+                                    <Viewbox Stretch="Fill" Margin="0,5" IsHitTestVisible="False">
+                                        <Polygon Points="{Binding StudioMasterWaveformPoints}" Fill="#00E676" Opacity="0.88"/>
+                                    </Viewbox>
+                                    <Canvas x:Name="StudioOverlayCanvas" IsHitTestVisible="False">
+                                        <Line x:Name="StudioMainPlayhead" Y1="0" Y2="160" Stroke="#FF2E54" StrokeThickness="2.2" Canvas.Left="0"/>
+                                    </Canvas>
+                                </Grid>
+                            </Border>
+
+                            <!-- Thanh điều khiển Trình phát Tổng hợp & Xuất file (Chia 2 hàng thoáng rộng) -->
+                            <StackPanel Grid.Row="2">
+                                <TextBlock Text="{Binding StudioStatusText}" Foreground="#B8E8FF" FontWeight="SemiBold" FontSize="11" TextTrimming="CharacterEllipsis" Margin="2,0,2,4"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Focusable="False" Content="▶ Phát tổng hợp" Click="MasterPlayButton_Click" Style="{StaticResource FlatPrimaryBtn}" Height="32" Padding="14,3" Margin="0,0,5,0" FontWeight="Bold"/>
+                                        <Button Focusable="False" Content="⏸ Tạm dừng" Command="{Binding PauseCommand}" Style="{StaticResource FlatGlassBtn}" Height="32" Padding="10,3" Margin="0,0,5,0"/>
+                                        <Button Focusable="False" Content="⏹ Dừng" Command="{Binding StopCommand}" Style="{StaticResource FlatGlassBtn}" Height="32" Padding="10,3" Margin="0,0,10,0"/>
+                                        <TextBlock Text="🔊 Âm lượng chính:" Foreground="#B0C8E0" FontSize="11" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                        <Slider Focusable="False" Minimum="0" Maximum="100" Value="{Binding Volume}" Width="85" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding Volume, StringFormat={}{0:0}%}" Foreground="#E0F7FA" FontFamily="Consolas" FontSize="11" Width="34" VerticalAlignment="Center" Margin="5,0,0,0"/>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Focusable="False" Content="↺ Đặt lại DSP đoạn chọn" Command="{Binding ResetStudioAllCommand}" Style="{StaticResource FlatGlassBtn}" Height="32" Padding="12,3" Margin="0,0,8,0"/>
+                                        <Button Focusable="False" Content="✨ XUẤT FILE TỔNG HỢP (.WAV)" Command="{Binding RenderCapCutTimelineMixdownCommand}" Style="{StaticResource FlatPrimaryBtn}" Height="32" Padding="16,3" FontWeight="Bold"/>
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- ==================== 3. CỘT PHẢI: KHO BẢN GHI + NÚT VOLUME PHỤ + CÁC NÚT THAO TÁC 2 HÀNG ==================== -->
+                <Border Grid.Column="2" Background="{Binding CardGlassBrush, FallbackValue=#73090E17}" CornerRadius="5" Padding="12,12"
+                        BorderBrush="#30FFFFFF" BorderThickness="1">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <Grid Grid.Row="0" Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="📂 DANH SÁCH BẢN GHI" Foreground="#00E5FF" FontWeight="Bold" FontSize="12.5" VerticalAlignment="Center"/>
+                            <Button Focusable="False" Grid.Column="1" Content="🔄 Quét lại" Command="{Binding ScanRecordingsCommand}" Style="{StaticResource MiniChipBtn}" Padding="8,3"/>
+                        </Grid>
+
+                        <!-- THANH NÚT VOLUME PHỤ DÀNH RIÊNG CHO DANH SÁCH BẢN GHI (ĐIỀU CHỈNH ÂM LƯỢNG NGHE THỬ DEMO 5S) -->
+                        <Border Grid.Row="1" Background="#280D1B2E" BorderBrush="#4500E5FF" BorderThickness="1" CornerRadius="4" Padding="8,5" Margin="0,0,0,8">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="36"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Focusable="False" Grid.Column="0" Content="{Binding PreviewListVolumeIcon, FallbackValue=🔊}"
+                                        Command="{Binding TogglePreviewListMuteCommand}"
+                                        Style="{StaticResource MiniChipBtn}" Width="26" Height="22" Padding="0" Margin="0,0,6,0"
+                                        ToolTip="Bật / Tắt tiếng âm lượng phụ của Danh sách bản ghi"/>
+                                <TextBlock Grid.Column="1" Text="Vol phụ (DS):" Foreground="#B8E8FF" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <Slider Focusable="False" Grid.Column="2" Minimum="0" Maximum="100" Value="{Binding PreviewListVolume, FallbackValue=80}" VerticalAlignment="Center"
+                                        ToolTip="Điều chỉnh âm lượng phụ khi nhấp nghe thử bản ghi trong danh sách"/>
+                                <TextBlock Grid.Column="3" Text="{Binding PreviewListVolume, StringFormat={}{0:0}%, FallbackValue=80%}"
+                                           Foreground="#00E5FF" FontWeight="Bold" FontFamily="Consolas" FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                            </Grid>
+                        </Border>
+
+                        <Border Grid.Row="2" Background="#2200C8FF" BorderBrush="#4400C8FF" BorderThickness="1" CornerRadius="4" Padding="8,4" Margin="0,0,0,8">
+                            <TextBlock Text="🖱️ Di chuột xem độ dài • Nhấp chọn phát thử 5s (theo Vol phụ) • Kéo thả vào Layer để dựng!"
+                                       Foreground="#B8E8FF" FontSize="10.5" TextWrapping="Wrap"/>
+                        </Border>
+
+                        <Border Grid.Row="3" Background="#4503070D" CornerRadius="4" BorderBrush="#28FFFFFF" BorderThickness="1" Padding="4">
+                            <ListBox x:Name="StudioRecordingsListBox" Background="Transparent" Foreground="#E6F2FF" BorderThickness="0"
+                                     ItemsSource="{Binding HistoryList}"
+                                     SelectedItem="{Binding SelectedHistoryItem}"
+                                     DisplayMemberPath="DisplayText"
+                                     FontSize="11.5" FontFamily="Consolas"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Hidden"
+                                     PreviewMouseLeftButtonDown="StudioRecordingsListBox_PreviewMouseLeftButtonDown"
+                                     PreviewMouseMove="StudioRecordingsListBox_PreviewMouseMove">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="Padding" Value="6,5"/>
+                                        <Setter Property="Cursor" Value="Hand"/>
+                                        <Setter Property="ToolTip" Value="{Binding DurationPopupText}"/>
+                                        <Setter Property="ToolTipService.InitialShowDelay" Value="60"/>
+                                        <Setter Property="ToolTipService.ShowDuration" Value="15000"/>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                            </ListBox>
+                        </Border>
+
+                        <!-- Bố trí nút thao tác danh sách bản ghi thành 2 hàng rõ ràng -->
+                        <UniformGrid Grid.Row="4" Columns="2" Rows="1" Height="32" Margin="0,8,0,6">
+                            <Button Focusable="False" Content="➕ Vào Layer hiện tại" Click="AddRecordingToCurrentLayer_Click" Style="{StaticResource FlatGlassBtn}" Margin="0,0,4,0" FontSize="11" ToolTip="Nối bản ghi đang chọn vào dòng Layer hiện tại"/>
+                            <Button Focusable="False" Content="➕ Thành Layer mới" Click="AddRecordingAsNewLayer_Click" Style="{StaticResource FlatPrimaryBtn}" Margin="4,0,0,0" FontSize="11" ToolTip="Tạo thêm dòng Layer mới (Layer 2, 3, 4...) và đặt bản ghi này vào đó"/>
+                        </UniformGrid>
+
+                        <UniformGrid Grid.Row="5" Columns="3" Rows="1" Height="32">
+                            <Button Focusable="False" Content="📑 Nhân bản" Command="{Binding DuplicateRecordingCommand}" Style="{StaticResource FlatGlassBtn}" Margin="0,0,3,0" FontSize="11"/>
+                            <Button Focusable="False" Content="🗑️ Xoá file" Command="{Binding DeleteRecordingCommand}" Style="{StaticResource FlatGlassBtn}" Margin="2,0,2,0" Foreground="#FF8A80" FontSize="11"/>
+                            <Button Focusable="False" Content="📂 Mở Output" Command="{Binding OpenFolderCommand}" CommandParameter="Output" Style="{StaticResource FlatGlassBtn}" Margin="3,0,0,0" FontSize="11"/>
+                        </UniformGrid>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <!-- OVERLAY XUAT FILE DA CHINH SUA (GIAO DIEN Y HET LUC CHUYEN VAN BAN THANH GIONG NOI) -->
+            <Border Grid.Row="1" Panel.ZIndex="999" Background="#AA040810" CornerRadius="5" Margin="12,10,12,12"
+                    Visibility="{Binding ProcessingVisibility, FallbackValue=Collapsed, TargetNullValue=Collapsed}"
+                    IsHitTestVisible="{Binding IsProcessing, FallbackValue=False, TargetNullValue=False}">
+                <Border Width="390" VerticalAlignment="Center" HorizontalAlignment="Center"
+                        Background="#E60C1422" BorderBrush="{Binding AccentBrush, FallbackValue=#0078D4}" BorderThickness="1"
+                        CornerRadius="5" Padding="24,20">
+                    <StackPanel>
+                        <TextBlock Text="&#x1F399;&#xFE0F; &#x0110;ANG X&#x1EEC; L&#x00DD; &#x00C2;M THANH AI STUDIO..." Foreground="White"
+                                   FontWeight="Bold" FontSize="14" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                        <TextBlock Text="{Binding SynthesisStatusText}" Foreground="#B8D8F8"
+                                   FontSize="12" HorizontalAlignment="Center" TextWrapping="Wrap" Margin="0,0,0,14"/>
+                        <Grid Height="20" Margin="0,0,0,6">
+                            <ProgressBar Value="{Binding SynthesisProgress, FallbackValue=0}" Minimum="0" Maximum="100"
+                                         Background="#44000000" Foreground="{Binding AccentBrush, FallbackValue=#0078D4}"
+                                         BorderBrush="#40FFFFFF" BorderThickness="1"/>
+                            <TextBlock Text="{Binding SynthesisProgressPercent, FallbackValue=0%}" Foreground="White"
+                                       FontWeight="Bold" FontFamily="Consolas" FontSize="11.5"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Grid>
+                        <TextBlock Text="Vui l&#x00F2;ng &#x0111;&#x1EE3;i trong gi&#x00E2;y l&#x00E1;t, c&#x00E1;c n&#x00FA;t ch&#x1EE9;c n&#x0103;ng &#x0111;ang t&#x1EA1;m kh&#x00F3;a..."
+                                   Foreground="#7898B8" FontSize="11" HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+            </Border>
+        </Grid>
+    </Border>
+</Window>
+<!-- Synchronized for Release VoiceCraft v1.0.6 -->
