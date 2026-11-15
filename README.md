@@ -1,3 +1,9 @@
+
+[ VOICECRAFT KHÔNG CÒN ĐƯỢC HỖ TRỢ, VUI LÒNG SỬ DỤNG PHIÊN BẢN VOICECRAFT V2 ]
+
+
+
+
 # 🎙️ VoiceCraft Studio (v1.0.6)
 **Hệ thống Chuyển đổi Văn bản thành Giọng nói Đa Mô hình (Multi-Engine AI TTS), Nhái giọng Zero-Shot & Phòng thu DSP**
 
